@@ -1,8 +1,9 @@
 import { supabase } from "./supabase.client";
-import { AppError } from "../../presentation/middlewares/errorHandler.middleware";
+import { AppError } from "../../domain/errors";
 import { Service, ServiceDefault } from "../../domain/entities/Service";
+import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
 
-export class ServiceRepository {
+export class ServiceRepository implements IServiceRepository {
   private readonly table = "services";
 
   async findById(id: string): Promise<Service | null> {
@@ -12,7 +13,7 @@ export class ServiceRepository {
       .eq("id", id)
       .single();
 
-    if (error && error.code === "PGRST116") return null;
+    if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
     return data as Service;
   }
@@ -29,7 +30,7 @@ export class ServiceRepository {
     return (data ?? []) as Service[];
   }
 
-  async create(data: Partial<Service>): Promise<Service> {
+  async create(data: Omit<Service, "id" | "activo" | "created_at">): Promise<Service> {
     const { data: created, error } = await supabase
       .from(this.table)
       .insert(data)
@@ -52,7 +53,7 @@ export class ServiceRepository {
     return updated as Service;
   }
 
-  // Soft delete — marca como inactivo, no elimina físicamente
+  /** Soft delete — marca como inactivo, no elimina físicamente */
   async deactivate(id: string): Promise<void> {
     const { error } = await supabase
       .from(this.table)

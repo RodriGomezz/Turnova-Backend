@@ -1,26 +1,27 @@
 import { supabase } from "./supabase.client";
 import { Schedule } from "../../domain/entities/Schedule";
-import { AppError } from "../../presentation/middlewares/errorHandler.middleware";
+import { AppError } from "../../domain/errors";
+import { IScheduleRepository } from "../../domain/interfaces/IScheduleRepository";
 
-export class ScheduleRepository {
+export class ScheduleRepository implements IScheduleRepository {
   private readonly table = "schedules";
 
-  async findByBusiness(businessId: string): Promise<Schedule[]> {
+  async findById(id: string): Promise<Schedule | null> {
     const { data, error } = await supabase
       .from(this.table)
       .select("*")
-      .eq("business_id", businessId)
-      .eq("activo", true)
-      .order("dia_semana", { ascending: true });
+      .eq("id", id)
+      .single();
 
+    if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
-    return (data ?? []) as Schedule[];
+    return data as Schedule;
   }
 
   async findForBarber(
     businessId: string,
     barberId: string,
-    diaSemana: number,
+    diaSemana: 0 | 1 | 2 | 3 | 4 | 5 | 6,
   ): Promise<Schedule | null> {
     const { data, error } = await supabase
       .from(this.table)
@@ -38,9 +39,10 @@ export class ScheduleRepository {
     return (barberSchedule ?? businessSchedule) as Schedule | null;
   }
 
-  // Retorna horarios resolviendo la precedencia barbero > negocio por día.
-  // Si se pasa barberId, para cada día usa el horario del barbero si existe,
-  // sino el del negocio. Sin barberId, retorna solo los horarios del negocio.
+  /**
+   * Retorna horarios resolviendo precedencia barbero > negocio por día.
+   * Sin `barberId` devuelve solo los horarios del negocio.
+   */
   async findAllByBusiness(
     businessId: string,
     barberId?: string,
@@ -69,7 +71,7 @@ export class ScheduleRepository {
     return Array.from(byDay.values());
   }
 
-  async create(data: Partial<Schedule>): Promise<Schedule> {
+  async create(data: Omit<Schedule, "id">): Promise<Schedule> {
     const { data: created, error } = await supabase
       .from(this.table)
       .insert(data)
@@ -94,20 +96,6 @@ export class ScheduleRepository {
 
   async delete(id: string): Promise<void> {
     const { error } = await supabase.from(this.table).delete().eq("id", id);
-
     if (error) throw new AppError(error.message, 500);
-  }
-
-  // ScheduleRepository — agregar este método
-  async findById(id: string): Promise<Schedule | null> {
-    const { data, error } = await supabase
-      .from(this.table)
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error && error.code === "PGRST116") return null;
-    if (error) throw new AppError(error.message, 500);
-    return data as Schedule;
   }
 }

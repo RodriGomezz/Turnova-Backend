@@ -1,48 +1,46 @@
-import { Router } from 'express';
-import { ScheduleController } from '../controllers/ScheduleController';
-import { validate } from '../middlewares/validate.middleware';
-import { authMiddleware } from '../middlewares/auth.middleware';
+import { Router } from "express";
+import { scheduleController } from "../../container";
+import { validate } from "../middlewares/validate.middleware";
+import { authMiddleware } from "../middlewares/auth.middleware";
 import {
   createScheduleSchema,
   updateScheduleSchema,
   createBlockedDateSchema,
-} from '../schemas/schedule.schema';
+} from "../schemas/schedule.schema";
 import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
 
 const router = Router();
-const controller = new ScheduleController();
 
 router.use(authMiddleware);
 
-// Horarios
-router.get('/', controller.listSchedules);
+// ── Horarios ──────────────────────────────────────────────────────────────
+router.get("/", scheduleController.listSchedules);
 router.post(
   "/",
   invalidatePublicCache,
   validate(createScheduleSchema),
-  controller.createSchedule,
+  scheduleController.createSchedule,
 );
 router.put(
   "/:id",
   invalidatePublicCache,
   validate(updateScheduleSchema),
-  controller.updateSchedule,
+  scheduleController.updateSchedule,
 );
-router.delete("/:id", invalidatePublicCache, controller.deleteSchedule);
+router.delete("/:id", invalidatePublicCache, scheduleController.deleteSchedule);
 
-
-// Fechas bloqueadas
-router.get('/blocked', controller.listBlockedDates);
+// ── Fechas bloqueadas ─────────────────────────────────────────────────────
+router.get("/blocked", scheduleController.listBlockedDates);
 router.post(
   "/blocked",
   invalidatePublicCache,
   validate(createBlockedDateSchema),
-  controller.createBlockedDate,
+  scheduleController.createBlockedDate,
 );
 router.delete(
   "/blocked/:id",
   invalidatePublicCache,
-  controller.deleteBlockedDate,
+  scheduleController.deleteBlockedDate,
 );
 
 export default router;

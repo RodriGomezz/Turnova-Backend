@@ -8,9 +8,9 @@ import { supabase } from "../../infrastructure/database/supabase.client";
 import { getCached, setCache } from "../../infrastructure/cache/public.cache";
 import { getBusinessStatus } from "../../domain/business-status";
 import { Business } from "../../domain/entities/Business";
-
+import { bookingController as controller } from '../../container';
 const router = Router();
-const controller = new BookingController();
+// const controller = new BookingController();
 
 // ── Panel del dueño (protegidas) ──────────────────────────────
 router.get("/panel", authMiddleware, controller.listByDate);

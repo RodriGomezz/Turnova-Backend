@@ -6,9 +6,8 @@ import { updateBusinessSchema } from "../schemas/business.schema";
 import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
 import { AppError } from "../middlewares/errorHandler.middleware";
 import { supabase } from "../../infrastructure/database/supabase.client";
-
+import { businessController as controller } from '../../container';
 const router = Router();
-const controller = new BusinessController();
 
 const businessPlanGuard = async (
   req: Request,

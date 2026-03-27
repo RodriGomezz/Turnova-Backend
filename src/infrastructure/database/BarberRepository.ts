@@ -1,8 +1,9 @@
 import { supabase } from "./supabase.client";
 import { Barber } from "../../domain/entities/Barber";
-import { AppError } from "../../presentation/middlewares/errorHandler.middleware";
+import { AppError } from "../../domain/errors";
+import { IBarberRepository } from "../../domain/interfaces/IBarberRepository";
 
-export class BarberRepository {
+export class BarberRepository implements IBarberRepository {
   private readonly table = "barbers";
 
   async findById(id: string): Promise<Barber | null> {
@@ -12,7 +13,7 @@ export class BarberRepository {
       .eq("id", id)
       .single();
 
-    if (error && error.code === "PGRST116") return null;
+    if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
     return data as Barber;
   }
@@ -63,7 +64,7 @@ export class BarberRepository {
     return updated as Barber;
   }
 
-  // Soft delete — marca como inactivo, no elimina físicamente
+  /** Soft delete — marca como inactivo, no elimina físicamente */
   async deactivate(id: string): Promise<void> {
     const { error } = await supabase
       .from(this.table)
