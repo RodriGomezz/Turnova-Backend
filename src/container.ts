@@ -20,7 +20,9 @@ import { ScheduleRepository } from "./infrastructure/database/ScheduleRepository
 import { BlockedDateRepository } from "./infrastructure/database/BlockedDateRepository";
 import { UserRepository } from "./infrastructure/database/UserRepository";
 import { UserBusinessAccessRepository } from "./infrastructure/database/UserBusinessAccessRepository";
+import { SubscriptionRepository } from "./infrastructure/database/SubscriptionRepository";
 import { EmailService } from "./application/email/email.service";
+import { dlocalClient } from "./infrastructure/payments/dlocal.client";
 
 // ── Use Cases ─────────────────────────────────────────────────────────────────
 import { GetAvailableSlotsUseCase } from "./application/bookings/GetAvailableSlotsUseCase";
@@ -29,6 +31,8 @@ import { GetDaySummaryUseCase } from "./application/bookings/GetDaySummaryUseCas
 import { GetAvailableDaysUseCase } from "./application/bookings/GetAvailableDaysUseCase";
 import { CreateBusinessUseCase } from "./application/businesses/CreateBusinessUseCase";
 import { CreateBarberUseCase } from "./application/barbers/CreateBarberUseCase";
+import { CreateSubscriptionUseCase } from "./application/subscriptions/CreateSubscriptionUseCase";
+import { HandleWebhookUseCase } from "./application/subscriptions/HandleWebhookUseCase";
 import { CreateServiceUseCase } from "./application/services/CreateServiceUseCase";
 
 // ── Controllers ───────────────────────────────────────────────────────────────
@@ -36,6 +40,8 @@ import { BookingController } from "./presentation/controllers/BookingController"
 import { BusinessController } from "./presentation/controllers/BusinessController";
 import { ScheduleController } from "./presentation/controllers/ScheduleController";
 import { ServiceController } from "./presentation/controllers/ServiceController";
+import { SubscriptionController } from "./presentation/controllers/SubscriptionController";
+import { WebhookController } from "./presentation/controllers/WebhookController";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Repositories (singletons — una instancia por proceso)
@@ -49,6 +55,7 @@ const scheduleRepository = new ScheduleRepository();
 const blockedDateRepository = new BlockedDateRepository();
 const userRepository = new UserRepository();
 const userBusinessAccessRepository = new UserBusinessAccessRepository();
+const subscriptionRepository = new SubscriptionRepository();
 const emailService = new EmailService();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -91,6 +98,18 @@ export const createBarberUseCase = new CreateBarberUseCase(barberRepository);
 
 export const createServiceUseCase = new CreateServiceUseCase(serviceRepository);
 
+const createSubscriptionUseCase = new CreateSubscriptionUseCase(
+  subscriptionRepository,
+  businessRepository,
+  dlocalClient,
+);
+
+const handleWebhookUseCase = new HandleWebhookUseCase(
+  subscriptionRepository,
+  businessRepository,
+  emailService,
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Controllers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,4 +141,16 @@ export const scheduleController = new ScheduleController(
 export const serviceController = new ServiceController(
   serviceRepository,
   createServiceUseCase,
+);
+
+export const subscriptionController = new SubscriptionController(
+  subscriptionRepository,
+  dlocalClient,
+  createSubscriptionUseCase,
+  userRepository,
+  businessRepository,
+);
+
+export const webhookController = new WebhookController(
+  handleWebhookUseCase,
 );

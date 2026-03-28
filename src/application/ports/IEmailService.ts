@@ -1,3 +1,5 @@
+// ── Emails de reservas ────────────────────────────────────────────────────────
+
 export interface BookingConfirmationPayload {
   to: string;
   clienteNombre: string;
@@ -35,8 +37,37 @@ export interface BookingReminderPayload {
   slug: string;
 }
 
+// ── Emails de suscripción ─────────────────────────────────────────────────────
+
+export interface PaymentConfirmationPayload {
+  to: string;
+  negocioNombre: string;
+  plan: string;
+  amount: number;
+  currency: string;
+  nextBillingDate: string;
+}
+
+export interface PaymentFailedPayload {
+  to: string;
+  negocioNombre: string;
+  plan: string;
+}
+
+export interface PaymentFailedGracePayload {
+  to: string;
+  negocioNombre: string;
+  plan: string;
+  gracePeriodEndsAt: string;
+}
+
+// ── Puerto ────────────────────────────────────────────────────────────────────
+
 export interface IEmailService {
   sendBookingConfirmation(payload: BookingConfirmationPayload): Promise<void>;
   sendBookingNotification(payload: BookingNotificationPayload): Promise<void>;
   sendBookingReminder(payload: BookingReminderPayload): Promise<void>;
+  sendPaymentConfirmation(payload: PaymentConfirmationPayload): Promise<void>;
+  sendPaymentFailed(payload: PaymentFailedPayload): Promise<void>;
+  sendPaymentFailedGrace(payload: PaymentFailedGracePayload): Promise<void>;
 }
