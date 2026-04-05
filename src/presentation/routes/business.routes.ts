@@ -51,5 +51,6 @@ router.patch("/switch", businessPlanGuard, controller.switchBusiness);
 router.patch("/:id/deactivate", controller.deactivate);
 router.patch("/:id/reactivate", controller.reactivate);
 router.delete("/:id", controller.deleteBranch);
+router.get("/subscription", controller.getSubscription);
 
 export default router;

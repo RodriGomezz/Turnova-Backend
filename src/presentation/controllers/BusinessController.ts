@@ -315,4 +315,41 @@ export class BusinessController {
       next(error);
     }
   };
+ getSubscription = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { data, error } = await supabase
+      .from("business_subscription")       // view, no tabla directa
+      .select(
+        "plan, status, current_period_end, grace_period_ends_at, dlocal_subscription_id",
+      )
+      .eq("business_id", req.businessId!)
+      .maybeSingle();                       // null si no existe — no lanza error
+
+    if (error) throw new AppError(error.message, 500);
+
+    if (!data) {
+      // Sin suscripción registrada — el frontend lo maneja como null
+      res.json({ subscription: null });
+      return;
+    }
+
+    // Mapear status de la BD al modelo del frontend
+    // La view puede tener: active | past_due | grace_period | canceled | expired
+    res.json({
+      subscription: {
+        plan:                  data.plan,
+        status:                data.status,
+        current_period_end:    data.current_period_end    ?? null,
+        grace_period_ends_at:  data.grace_period_ends_at  ?? null,
+        dlocal_subscription_id: data.dlocal_subscription_id ?? null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 }
