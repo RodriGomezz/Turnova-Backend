@@ -35,6 +35,7 @@ export class WebhookController {
       }
 
       const rawBody = (req.body as Buffer).toString();
+      logger.info("Webhook payload raw", { body: rawBody });
       let payload: DLocalGoWebhookPayload;
 
       try {
