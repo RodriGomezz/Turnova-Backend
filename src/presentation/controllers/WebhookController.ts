@@ -35,17 +35,17 @@ export class WebhookController {
       }
 
       const rawBody = (req.body as Buffer).toString();
-      // logger.info("Webhook payload raw", { body: JSON.stringify({ raw: rawBody }) });
-      // logger.info("Webhook debug", { 
-      //   bodyType: typeof req.body,
-      //   isBuffer: Buffer.isBuffer(req.body),
-      //   bodyKeys: req.body ? Object.keys(req.body) : [],
-      //   rawLength: rawBody.length,
-      //   rawSample: rawBody.substring(0, 100),
-      // });
-      // console.log("WEBHOOK BODY:", req.body);
-      // console.log("WEBHOOK RAW:", rawBody);
-      // console.log("WEBHOOK IS BUFFER:", Buffer.isBuffer(req.body));
+      logger.info("Webhook payload raw", { body: JSON.stringify({ raw: rawBody }) });
+      logger.info("Webhook debug", { 
+        bodyType: typeof req.body,
+        isBuffer: Buffer.isBuffer(req.body),
+        bodyKeys: req.body ? Object.keys(req.body) : [],
+        rawLength: rawBody.length,
+        rawSample: rawBody.substring(0, 100),
+      });
+      console.log("WEBHOOK BODY:", req.body);
+      console.log("WEBHOOK RAW:", rawBody);
+      console.log("WEBHOOK IS BUFFER:", Buffer.isBuffer(req.body));
       let payload: DLocalGoWebhookPayload;
 
       try {
