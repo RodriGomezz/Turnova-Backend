@@ -8,11 +8,7 @@ export class SubscriptionRepository implements ISubscriptionRepository {
 
   async findById(id: string): Promise<Subscription | null> {
     const { data, error } = await supabase
-      .from(this.table)
-      .select("*")
-      .eq("id", id)
-      .single();
-
+      .from(this.table).select("*").eq("id", id).single();
     if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
     return data as Subscription;
@@ -20,13 +16,10 @@ export class SubscriptionRepository implements ISubscriptionRepository {
 
   async findByBusinessId(businessId: string): Promise<Subscription | null> {
     const { data, error } = await supabase
-      .from(this.table)
-      .select("*")
+      .from(this.table).select("*")
       .eq("business_id", businessId)
       .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
+      .limit(1).single();
     if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
     return data as Subscription;
@@ -34,38 +27,41 @@ export class SubscriptionRepository implements ISubscriptionRepository {
 
   async findByDlocalId(dlocalSubscriptionId: string): Promise<Subscription | null> {
     const { data, error } = await supabase
-      .from(this.table)
-      .select("*")
+      .from(this.table).select("*")
       .eq("dlocal_subscription_id", dlocalSubscriptionId)
       .single();
-
     if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
     return data as Subscription;
   }
 
   async findExpiredGracePeriods(): Promise<Subscription[]> {
-    const now = new Date().toISOString();
-
     const { data, error } = await supabase
-      .from(this.table)
-      .select("*")
+      .from(this.table).select("*")
       .eq("status", "grace_period")
-      .lt("grace_period_ends_at", now);
-
+      .lt("grace_period_ends_at", new Date().toISOString());
     if (error) throw new AppError(error.message, 500);
     return (data ?? []) as Subscription[];
   }
 
-  async create(
-    data: Omit<Subscription, "id" | "created_at">,
-  ): Promise<Subscription> {
-    const { data: created, error } = await supabase
-      .from(this.table)
-      .insert(data)
-      .select()
-      .single();
+  /**
+   * Busca la suscripción más reciente con dlocal_subscription_id provisional
+   * (el order_id que generamos: uuid_timestamp, no empieza con "DP-")
+   */
+  async findMostRecentPending(): Promise<Subscription | null> {
+    const { data, error } = await supabase
+      .from(this.table).select("*")
+      .not("dlocal_subscription_id", "like", "DP-%")
+      .order("created_at", { ascending: false })
+      .limit(1).single();
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Subscription;
+  }
 
+  async create(data: Omit<Subscription, "id" | "created_at">): Promise<Subscription> {
+    const { data: created, error } = await supabase
+      .from(this.table).insert(data).select().single();
     if (error) throw new AppError(error.message, 500);
     return created as Subscription;
   }
@@ -76,12 +72,8 @@ export class SubscriptionRepository implements ISubscriptionRepository {
     extra: Partial<Subscription> = {},
   ): Promise<Subscription> {
     const { data: updated, error } = await supabase
-      .from(this.table)
-      .update({ status, ...extra })
-      .eq("id", id)
-      .select()
-      .single();
-
+      .from(this.table).update({ status, ...extra })
+      .eq("id", id).select().single();
     if (error) throw new AppError(error.message, 500);
     return updated as Subscription;
   }
