@@ -129,7 +129,7 @@ export const dlocalClient: IPaymentProvider = {
    */
   async createSubscription(input: CreateSubscriptionInput): Promise<CreateSubscriptionResult> {
     const amount = PLAN_PRICES[input.plan];
-    const orderId = `${input.businessId}-${Date.now()}`;
+    const orderId = `${input.businessId}_${Date.now()}`;
 
     const payload: DLocalGoPaymentRequest = {
       country_code:     COUNTRY_CODE,

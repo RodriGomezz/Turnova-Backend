@@ -199,7 +199,7 @@ export class HandleWebhookUseCase {
 
     // Fallback: buscar por order_id (formato: businessId-timestamp)
     if (payload.order_id) {
-      const businessId = payload.order_id.split("-")[0];
+      const businessId = payload.order_id.split("_")[0];
       if (businessId) {
         subscription = await this.subscriptionRepository.findByBusinessId(businessId);
         if (subscription) return subscription;
