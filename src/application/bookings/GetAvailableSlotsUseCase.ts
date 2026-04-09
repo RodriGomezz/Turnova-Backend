@@ -1,8 +1,8 @@
-import { BookingRepository } from "../../infrastructure/database/BookingRepository";
-import { ScheduleRepository } from "../../infrastructure/database/ScheduleRepository";
-import { BlockedDateRepository } from "../../infrastructure/database/BlockedDateRepository";
+import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
+import { IScheduleRepository } from "../../domain/interfaces/IScheduleRepository";
+import { IBlockedDateRepository } from "../../domain/interfaces/IBlockedDateRepository";
 
-interface GetAvailableSlotsInput {
+export interface GetAvailableSlotsInput {
   barberId: string;
   businessId: string;
   fecha: string;
@@ -10,30 +10,23 @@ interface GetAvailableSlotsInput {
   bufferMinutos: number;
 }
 
-interface TimeSlot {
+export interface TimeSlot {
   hora_inicio: string;
   hora_fin: string;
   disponible: boolean;
 }
 
+type DiaSemana = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
 export class GetAvailableSlotsUseCase {
   constructor(
-    private readonly bookingRepository: BookingRepository,
-    private readonly scheduleRepository: ScheduleRepository,
-    private readonly blockedDateRepository: BlockedDateRepository,
+    private readonly bookingRepository: IBookingRepository,
+    private readonly scheduleRepository: IScheduleRepository,
+    private readonly blockedDateRepository: IBlockedDateRepository,
   ) {}
 
   async execute(input: GetAvailableSlotsInput): Promise<TimeSlot[]> {
-    // Parsear fecha sin conversión de timezone — evita bugs de día incorrecto
-    const [year, month, day] = input.fecha.split("-").map(Number);
-    const diaSemana = new Date(year, month - 1, day).getDay() as
-      | 0
-      | 1
-      | 2
-      | 3
-      | 4
-      | 5
-      | 6;
+    const diaSemana = this.parseDiaSemana(input.fecha);
 
     const isBlocked = await this.blockedDateRepository.isBlocked(
       input.businessId,
@@ -65,6 +58,17 @@ export class GetAvailableSlotsUseCase {
       ...slot,
       disponible: !this.isSlotTaken(slot, existingBookings),
     }));
+  }
+
+  // ── Helpers privados ──────────────────────────────────────────────────────
+
+  /**
+   * Parsea la fecha como fecha local para evitar bugs de timezone.
+   * "2025-01-15" → Date(2025, 0, 15) → .getDay()
+   */
+  private parseDiaSemana(fecha: string): DiaSemana {
+    const [year, month, day] = fecha.split("-").map(Number);
+    return new Date(year, month - 1, day).getDay() as DiaSemana;
   }
 
   private normalizeTime(time: string): string {
@@ -113,9 +117,7 @@ export class GetAvailableSlotsUseCase {
   }
 
   private minutesToTime(minutes: number): string {
-    const h = Math.floor(minutes / 60)
-      .toString()
-      .padStart(2, "0");
+    const h = Math.floor(minutes / 60).toString().padStart(2, "0");
     const m = (minutes % 60).toString().padStart(2, "0");
     return `${h}:${m}`;
   }

@@ -3,39 +3,18 @@ import { bookingConfirmationTemplate } from "../../infrastructure/email/template
 import { bookingReminderTemplate } from "../../infrastructure/email/templates/booking-reminder";
 import { bookingNotificationTemplate } from "../../infrastructure/email/templates/booking-notification";
 import { logger } from "../../infrastructure/logger";
+import {
+  IEmailService,
+  BookingConfirmationPayload,
+  BookingNotificationPayload,
+  BookingReminderPayload,
+  PaymentConfirmationPayload,
+  PaymentFailedPayload,
+  PaymentFailedGracePayload,
+} from "../ports/IEmailService";
 
-interface BookingConfirmationData {
-  to: string;
-  clienteNombre: string;
-  negocioNombre: string;
-  servicioNombre: string;
-  barberoNombre: string;
-  fecha: string;
-  horaInicio: string;
-  cancellationToken: string;
-  slug: string;
-}
-
-interface BookingReminderData extends BookingConfirmationData {
-  direccion?: string;
-  whatsapp?: string;
-}
-
-interface BookingNotificationData {
-  to: string;
-  negocioNombre: string;
-  clienteNombre: string;
-  clienteEmail: string;
-  clienteTelefono: string;
-  servicioNombre: string;
-  barberoNombre: string;
-  fecha: string;
-  horaInicio: string;
-  horaFin: string;
-}
-
-export class EmailService {
-  async sendBookingConfirmation(data: BookingConfirmationData): Promise<void> {
+export class EmailService implements IEmailService {
+  async sendBookingConfirmation(data: BookingConfirmationPayload): Promise<void> {
     await resend.emails.send({
       from: EMAIL_FROM,
       to: data.to,
@@ -48,7 +27,7 @@ export class EmailService {
     });
   }
 
-  async sendBookingReminder(data: BookingReminderData): Promise<void> {
+  async sendBookingReminder(data: BookingReminderPayload): Promise<void> {
     await resend.emails.send({
       from: EMAIL_FROM,
       to: data.to,
@@ -61,7 +40,7 @@ export class EmailService {
     });
   }
 
-  async sendBookingNotification(data: BookingNotificationData): Promise<void> {
+  async sendBookingNotification(data: BookingNotificationPayload): Promise<void> {
     await resend.emails.send({
       from: EMAIL_FROM,
       to: data.to,
@@ -72,5 +51,65 @@ export class EmailService {
       to: data.to,
       negocio: data.negocioNombre,
     });
+  }
+
+  async sendPaymentConfirmation(data: PaymentConfirmationPayload): Promise<void> {
+    const fecha = new Date(data.nextBillingDate).toLocaleDateString("es-UY", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+
+    await resend.emails.send({
+      from: EMAIL_FROM,
+      to: data.to,
+      subject: `✓ Pago recibido — Plan ${data.plan} Turnio`,
+      html: `
+        <p>Hola <strong>${data.negocioNombre}</strong>,</p>
+        <p>Tu pago de <strong>${data.currency} ${data.amount.toLocaleString("es-UY")}</strong>
+           para el plan <strong>${data.plan}</strong> fue procesado correctamente.</p>
+        <p>Tu próximo cobro será el <strong>${fecha}</strong>.</p>
+        <p>Gracias por confiar en Turnio.</p>
+      `,
+    });
+    logger.info("Email de confirmación de pago enviado", { to: data.to });
+  }
+
+  async sendPaymentFailed(data: PaymentFailedPayload): Promise<void> {
+    await resend.emails.send({
+      from: EMAIL_FROM,
+      to: data.to,
+      subject: `⚠️ Problema con tu pago — Turnio`,
+      html: `
+        <p>Hola <strong>${data.negocioNombre}</strong>,</p>
+        <p>No pudimos procesar el pago de tu plan <strong>${data.plan}</strong>.</p>
+        <p>Vamos a reintentar el cobro en los próximos días.
+           Si el problema persiste, actualizá tu método de pago desde el panel.</p>
+      `,
+    });
+    logger.info("Email de pago fallido enviado", { to: data.to });
+  }
+
+  async sendPaymentFailedGrace(data: PaymentFailedGracePayload): Promise<void> {
+    const fecha = new Date(data.gracePeriodEndsAt).toLocaleDateString("es-UY", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+
+    await resend.emails.send({
+      from: EMAIL_FROM,
+      to: data.to,
+      subject: `🚨 Acción requerida — Tu plan vence el ${fecha}`,
+      html: `
+        <p>Hola <strong>${data.negocioNombre}</strong>,</p>
+        <p>No pudimos procesar el pago de tu plan <strong>${data.plan}</strong>
+           y los reintentos automáticos se agotaron.</p>
+        <p>Tu cuenta permanecerá activa hasta el <strong>${fecha}</strong>.
+           Después de esa fecha pasará automáticamente al plan Starter.</p>
+        <p>Para mantener tu plan, actualizá tu método de pago desde el panel.</p>
+      `,
+    });
+    logger.info("Email de período de gracia enviado", { to: data.to });
   }
 }

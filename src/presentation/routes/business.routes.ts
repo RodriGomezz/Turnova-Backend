@@ -1,14 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { BusinessController } from "../controllers/BusinessController";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { updateBusinessSchema } from "../schemas/business.schema";
 import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
 import { AppError } from "../middlewares/errorHandler.middleware";
 import { supabase } from "../../infrastructure/database/supabase.client";
+import { businessController as controller } from '../../container';
 
 const router = Router();
-const controller = new BusinessController();
 
 const businessPlanGuard = async (
   req: Request,
@@ -51,6 +50,5 @@ router.patch("/switch", businessPlanGuard, controller.switchBusiness);
 router.patch("/:id/deactivate", controller.deactivate);
 router.patch("/:id/reactivate", controller.reactivate);
 router.delete("/:id", controller.deleteBranch);
-router.get("/subscription", controller.getSubscription);
 
 export default router;

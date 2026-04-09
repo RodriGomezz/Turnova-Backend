@@ -1,9 +1,12 @@
-import { BookingRepository } from "../../infrastructure/database/BookingRepository";
-import { GetAvailableSlotsUseCase } from "./GetAvailableSlotsUseCase";
+import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
 import { Booking } from "../../domain/entities/Booking";
 import { ConflictError } from "../../domain/errors";
+import {
+  GetAvailableSlotsUseCase,
+  GetAvailableSlotsInput,
+} from "./GetAvailableSlotsUseCase";
 
-interface CreateBookingInput {
+export interface CreateBookingInput {
   business_id: string;
   barber_id: string;
   service_id: string;
@@ -20,18 +23,20 @@ interface CreateBookingInput {
 
 export class CreateBookingUseCase {
   constructor(
-    private readonly bookingRepository: BookingRepository,
+    private readonly bookingRepository: IBookingRepository,
     private readonly getAvailableSlotsUseCase: GetAvailableSlotsUseCase,
   ) {}
 
   async execute(input: CreateBookingInput): Promise<Booking> {
-    const slots = await this.getAvailableSlotsUseCase.execute({
+    const slotsInput: GetAvailableSlotsInput = {
       barberId: input.barber_id,
       businessId: input.business_id,
       fecha: input.fecha,
       duracionMinutos: input.duracion_minutos,
       bufferMinutos: input.buffer_minutos,
-    });
+    };
+
+    const slots = await this.getAvailableSlotsUseCase.execute(slotsInput);
 
     const slotDisponible = slots.find(
       (s) => s.hora_inicio === input.hora_inicio && s.disponible,

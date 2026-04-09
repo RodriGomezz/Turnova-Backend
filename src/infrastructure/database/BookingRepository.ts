@@ -1,9 +1,13 @@
-import { supabase } from './supabase.client';
-import { Booking } from '../../domain/entities/Booking';
-import { AppError } from '../../presentation/middlewares/errorHandler.middleware';
+import { supabase } from "./supabase.client";
+import { Booking, BookingEstado } from "../../domain/entities/Booking";
+import { AppError } from "../../domain/errors";
+import {
+  IBookingRepository,
+  BookingsByMonth,
+} from "../../domain/interfaces/IBookingRepository";
 
-export class BookingRepository {
-  private table = "bookings";
+export class BookingRepository implements IBookingRepository {
+  private readonly table = "bookings";
 
   async findById(id: string): Promise<Booking | null> {
     const { data, error } = await supabase
@@ -12,9 +16,8 @@ export class BookingRepository {
       .eq("id", id)
       .single();
 
-    if (error && error.code === "PGRST116") return null;
+    if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
-
     return data as Booking;
   }
 
@@ -25,16 +28,12 @@ export class BookingRepository {
       .eq("cancellation_token", token)
       .single();
 
-    if (error && error.code === "PGRST116") return null;
+    if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
-
     return data as Booking;
   }
 
-  async findByBusinessAndDate(
-    businessId: string,
-    fecha: string,
-  ): Promise<Booking[]> {
+  async findByBusinessAndDate(businessId: string, fecha: string): Promise<Booking[]> {
     const { data, error } = await supabase
       .from(this.table)
       .select(
@@ -46,14 +45,10 @@ export class BookingRepository {
       .order("hora_inicio", { ascending: true });
 
     if (error) throw new AppError(error.message, 500);
-
     return (data ?? []) as Booking[];
   }
 
-  async findByBarberAndDate(
-    barberId: string,
-    fecha: string,
-  ): Promise<Booking[]> {
+  async findByBarberAndDate(barberId: string, fecha: string): Promise<Booking[]> {
     const { data, error } = await supabase
       .from(this.table)
       .select("*")
@@ -62,7 +57,6 @@ export class BookingRepository {
       .neq("estado", "cancelada");
 
     if (error) throw new AppError(error.message, 500);
-
     return (data ?? []) as Booking[];
   }
 
@@ -71,7 +65,7 @@ export class BookingRepository {
     businessId: string,
     from: string,
     to: string,
-  ): Promise<Booking[]> {
+  ): Promise<Pick<Booking, "fecha" | "hora_inicio" | "hora_fin">[]> {
     let query = supabase
       .from(this.table)
       .select("fecha, hora_inicio, hora_fin")
@@ -86,7 +80,7 @@ export class BookingRepository {
 
     const { data, error } = await query;
     if (error) throw new AppError(error.message, 500);
-    return (data ?? []) as Booking[];
+    return (data ?? []) as Pick<Booking, "fecha" | "hora_inicio" | "hora_fin">[];
   }
 
   async findPendingReminders(): Promise<Booking[]> {
@@ -102,11 +96,29 @@ export class BookingRepository {
       .is("reminder_sent_at", null);
 
     if (error) throw new AppError(error.message, 500);
-
     return (data ?? []) as Booking[];
   }
 
-  async create(data: Partial<Booking>): Promise<Booking> {
+  async findEmailsByBusiness(
+    businessId: string,
+    beforeFecha: string,
+    emails: string[],
+  ): Promise<string[]> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("cliente_email")
+      .eq("business_id", businessId)
+      .lt("fecha", beforeFecha)
+      .neq("estado", "cancelada")
+      .in("cliente_email", emails);
+
+    if (error) throw new AppError(error.message, 500);
+    return (data ?? []).map((b: { cliente_email: string }) => b.cliente_email);
+  }
+
+  async create(
+    data: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at">,
+  ): Promise<Booking> {
     const { data: created, error } = await supabase
       .from(this.table)
       .insert(data)
@@ -114,11 +126,10 @@ export class BookingRepository {
       .single();
 
     if (error) throw new AppError(error.message, 500);
-
     return created as Booking;
   }
 
-  async updateEstado(id: string, estado: Booking["estado"]): Promise<Booking> {
+  async updateEstado(id: string, estado: BookingEstado): Promise<Booking> {
     const { data: updated, error } = await supabase
       .from(this.table)
       .update({ estado })
@@ -127,7 +138,6 @@ export class BookingRepository {
       .single();
 
     if (error) throw new AppError(error.message, 500);
-
     return updated as Booking;
   }
 
@@ -144,10 +154,8 @@ export class BookingRepository {
     businessId: string,
     year: number,
     month: number,
-  ): Promise<{ fecha: string; total: number }[]> {
-    const from = `${year}-${month.toString().padStart(2, "0")}-01`;
-    const lastDay = new Date(year, month, 0).getDate();
-    const to = `${year}-${month.toString().padStart(2, "0")}-${lastDay}`;
+  ): Promise<BookingsByMonth[]> {
+    const { from, to } = this.buildMonthRange(year, month);
 
     const { data, error } = await supabase
       .from(this.table)
@@ -172,9 +180,7 @@ export class BookingRepository {
     year: number,
     month: number,
   ): Promise<number> {
-    const from = `${year}-${month.toString().padStart(2, "0")}-01`;
-    const lastDay = new Date(year, month, 0).getDate();
-    const to = `${year}-${month.toString().padStart(2, "0")}-${lastDay}`;
+    const { from, to } = this.buildMonthRange(year, month);
 
     const { count, error } = await supabase
       .from(this.table)
@@ -188,20 +194,14 @@ export class BookingRepository {
     return count ?? 0;
   }
 
-  async findEmailsByBusiness(
-    businessId: string,
-    beforeFecha: string,
-    emails: string[],
-  ): Promise<string[]> {
-    const { data, error } = await supabase
-      .from("bookings")
-      .select("cliente_email")
-      .eq("business_id", businessId)
-      .lt("fecha", beforeFecha)
-      .neq("estado", "cancelada")
-      .in("cliente_email", emails);
+  // ── Helpers privados ──────────────────────────────────────────────────────
 
-    if (error) throw new AppError(error.message, 500);
-    return (data ?? []).map((b) => b.cliente_email);
+  private buildMonthRange(year: number, month: number): { from: string; to: string } {
+    const mm = month.toString().padStart(2, "0");
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+      from: `${year}-${mm}-01`,
+      to: `${year}-${mm}-${lastDay}`,
+    };
   }
 }
