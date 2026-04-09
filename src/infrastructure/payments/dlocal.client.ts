@@ -77,13 +77,14 @@ function getBaseUrl(): string {
     ? DLOCAL_GO_PROD_API
     : DLOCAL_GO_SANDBOX_API;
 }
-
 // ── Helpers privados ──────────────────────────────────────────────────────────
 
 function buildHeaders(): Record<string, string> {
+  const apiKey = process.env.DLOCAL_API_KEY ?? "";
+  const apiSecret = process.env.DLOCAL_API_SECRET ?? "";
+  
   return {
-    "X-Api-Key":    process.env.DLOCAL_API_KEY    ?? "",
-    "X-Api-Secret": process.env.DLOCAL_API_SECRET ?? "",
+    "Authorization": `Bearer ${apiKey}:${apiSecret}`,
     "Content-Type": "application/json",
   };
 }
@@ -138,7 +139,7 @@ export const dlocalClient: IPaymentProvider = {
       back_url:         input.cancelUrl,
       notification_url: `${process.env.API_URL ?? "http://localhost:3000"}/api/subscriptions/dlocal`,
       order_id:         orderId,
-      description:      `Turnio Plan ${input.plan} — suscripción mensual`,
+      description:      `Kronu Plan ${input.plan} — suscripción mensual`,
       payer: {
         name:  input.nombre,
         email: input.email,
