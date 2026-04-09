@@ -43,6 +43,9 @@ export class WebhookController {
         rawLength: rawBody.length,
         rawSample: rawBody.substring(0, 100),
       });
+      console.log("WEBHOOK BODY:", req.body);
+      console.log("WEBHOOK RAW:", rawBody);
+      console.log("WEBHOOK IS BUFFER:", Buffer.isBuffer(req.body));
       let payload: DLocalGoWebhookPayload;
 
       try {
