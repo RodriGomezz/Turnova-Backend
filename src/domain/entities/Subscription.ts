@@ -5,7 +5,7 @@ export type SubscriptionStatus =
   | "canceled"     // cancelado por el usuario
   | "expired";     // gracia expirada — plan degradado a Starter
 
-export type SubscriptionPlan = "pro" | "business";
+export type SubscriptionPlan = "starter" | "pro" | "business";
 
 export interface Subscription {
   id: string;

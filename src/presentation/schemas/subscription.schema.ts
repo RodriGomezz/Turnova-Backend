@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const createSubscriptionSchema = z.object({
-  plan: z.enum(["pro", "business"]),
+  plan: z.enum(["starter", "pro", "business"]),
 });
 
 export const cancelSubscriptionSchema = z.object({

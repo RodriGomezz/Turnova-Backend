@@ -1,7 +1,7 @@
 import { ISubscriptionRepository } from "../../domain/interfaces/ISubscriptionRepository";
 import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository";
 import { IPaymentProvider } from "../ports/IPaymentProvider";
-import { Subscription, SubscriptionPlan } from "../../domain/entities/Subscription";
+import { SubscriptionPlan } from "../../domain/entities/Subscription";
 import { AppError, ConflictError } from "../../domain/errors";
 
 export interface CreateSubscriptionInput {
@@ -9,7 +9,6 @@ export interface CreateSubscriptionInput {
   plan: SubscriptionPlan;
   email: string;
   nombre: string;
-  /** URL base del frontend — ej: https://app.turnio.pro */
   frontendUrl: string;
 }
 
@@ -24,42 +23,45 @@ export class CreateSubscriptionUseCase {
     const business = await this.businessRepository.findById(input.businessId);
     if (!business) throw new AppError("Negocio no encontrado", 404);
 
-    // Evitar suscripciones duplicadas activas
-    const existing = await this.subscriptionRepository.findByBusinessId(
-      input.businessId,
-    );
-    if (existing && (existing.status === "active" || existing.status === "past_due")) {
-      throw new ConflictError("Ya existe una suscripción activa para este negocio");
+    const existing = await this.subscriptionRepository.findByBusinessId(input.businessId);
+    if (existing && existing.status === "active") {
+      await this.subscriptionRepository.updateStatus(existing.id, "canceled", {
+        canceled_at: new Date().toISOString(),
+      });
+    } else if (existing && existing.status === "past_due") {
+      throw new ConflictError("Tenés un pago pendiente. Esperá que se resuelva antes de cambiar de plan.");
     }
 
     const result = await this.paymentProvider.createSubscription({
       businessId: input.businessId,
-      plan: input.plan,
-      email: input.email,
-      nombre: input.nombre,
-      successUrl: `${input.frontendUrl}/panel/billing?success=true`,
-      cancelUrl: `${input.frontendUrl}/panel/plans?canceled=true`,
+      plan:       input.plan,
+      email:      input.email,
+      nombre:     input.nombre,
+      successUrl: `${input.frontendUrl}/panel/configuracion?tab=planes&success=true`,
+      cancelUrl:  `${input.frontendUrl}/panel/configuracion?tab=planes&canceled=true`,
     });
 
-    const now = new Date();
-    const periodEnd = new Date(result.nextBillingDate);
+    const now       = new Date();
+    const periodEnd = new Date(now);
+    periodEnd.setDate(periodEnd.getDate() + 30);
 
+    // Guardar suscripción con status "active" pero SIN actualizar el plan del negocio.
+    // El plan se actualiza cuando llega el webhook de pago confirmado.
     await this.subscriptionRepository.create({
-      business_id: input.businessId,
-      plan: input.plan,
-      status: "active",
+      business_id:            input.businessId,
+      plan:                   input.plan,
+      status:                 "active",
       dlocal_subscription_id: result.subscriptionId,
-      dlocal_payment_id: null,
-      current_period_start: now.toISOString(),
-      current_period_end: periodEnd.toISOString(),
-      grace_period_ends_at: null,
-      canceled_at: null,
+      dlocal_payment_id:      null,
+      current_period_start:   now.toISOString(),
+      current_period_end:     periodEnd.toISOString(),
+      grace_period_ends_at:   null,
+      canceled_at:            null,
     });
 
-    // Actualizar plan del negocio inmediatamente
-    await this.businessRepository.update(input.businessId, {
-      plan: input.plan,
-    });
+    // ⚠️  NO actualizar business.plan aquí — se actualiza en HandleWebhookUseCase
+    // cuando dLocal confirma el pago via webhook. Así evitamos cambiar el plan
+    // si el usuario abandona el checkout sin pagar.
 
     return { checkoutUrl: result.checkoutUrl };
   }

@@ -11,11 +11,13 @@ export function getBusinessStatus(business: {
   const trialEnd = business.trial_ends_at
     ? new Date(business.trial_ends_at)
     : null;
-  const tuvoTrial = trialEnd !== null;
-  const trialActivo = trialEnd ? trialEnd > now : false;
 
-  if (trialActivo) return "trial";
-  if (business.plan === "starter" && tuvoTrial && !trialActivo)
+  if (trialEnd && trialEnd > now) return "trial";
+
+  // Trial vencido sin suscripción activa = trial_expired
+  if (business.plan === "starter" && trialEnd && trialEnd <= now) {
     return "trial_expired";
+  }
+
   return "active";
 }
