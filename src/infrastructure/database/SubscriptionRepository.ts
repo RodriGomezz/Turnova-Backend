@@ -25,10 +25,44 @@ export class SubscriptionRepository implements ISubscriptionRepository {
     return data as Subscription;
   }
 
+  async findActiveByBusinessId(businessId: string): Promise<Subscription | null> {
+    const { data, error } = await supabase
+      .from(this.table).select("*")
+      .eq("business_id", businessId)
+      .in("status", ["active", "past_due", "grace_period"])
+      .order("created_at", { ascending: false })
+      .limit(1).single();
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Subscription;
+  }
+
+  async findPendingByBusinessId(businessId: string): Promise<Subscription | null> {
+    const { data, error } = await supabase
+      .from(this.table).select("*")
+      .eq("business_id", businessId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(1).single();
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Subscription;
+  }
+
   async findByDlocalId(dlocalSubscriptionId: string): Promise<Subscription | null> {
     const { data, error } = await supabase
       .from(this.table).select("*")
       .eq("dlocal_subscription_id", dlocalSubscriptionId)
+      .single();
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Subscription;
+  }
+
+  async findByPaymentId(paymentId: string): Promise<Subscription | null> {
+    const { data, error } = await supabase
+      .from(this.table).select("*")
+      .eq("dlocal_payment_id", paymentId)
       .single();
     if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
@@ -51,6 +85,7 @@ export class SubscriptionRepository implements ISubscriptionRepository {
   async findMostRecentPending(): Promise<Subscription | null> {
     const { data, error } = await supabase
       .from(this.table).select("*")
+      .eq("status", "pending")
       .not("dlocal_subscription_id", "like", "DP-%")
       .order("created_at", { ascending: false })
       .limit(1).single();

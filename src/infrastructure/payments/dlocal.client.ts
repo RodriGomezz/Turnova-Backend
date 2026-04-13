@@ -104,7 +104,10 @@ export const dlocalClient: IPaymentProvider = {
       notification_url: `${process.env.API_URL ?? "http://localhost:3000"}/api/subscriptions/dlocal`,
       order_id:         orderId,
       description:      `Turnio Plan ${input.plan} — suscripción mensual`,
-      payer: { name: input.nombre, email: input.email },
+      payer: {
+        name: `${input.firstName} ${input.lastName}`.trim(),
+        email: input.email,
+      },
     };
 
     logger.info("dLocal Go createPayment", {

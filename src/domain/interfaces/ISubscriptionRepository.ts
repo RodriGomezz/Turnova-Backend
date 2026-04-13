@@ -3,7 +3,10 @@ import { Subscription, SubscriptionStatus } from "../entities/Subscription";
 export interface ISubscriptionRepository {
   findById(id: string): Promise<Subscription | null>;
   findByBusinessId(businessId: string): Promise<Subscription | null>;
+  findActiveByBusinessId(businessId: string): Promise<Subscription | null>;
+  findPendingByBusinessId(businessId: string): Promise<Subscription | null>;
   findByDlocalId(dlocalSubscriptionId: string): Promise<Subscription | null>;
+  findByPaymentId(paymentId: string): Promise<Subscription | null>;
   findExpiredGracePeriods(): Promise<Subscription[]>;
   /**
    * Busca la suscripción más reciente cuyo dlocal_subscription_id
