@@ -1,0 +1,189 @@
+<div class="bookings">
+
+  <!-- HEADER -->
+  <div class="page-header">
+    <div>
+      <p class="page-eyebrow">Panel</p>
+      <h1 class="page-title">{{ terms.reserva() }}s</h1>
+      <p class="page-subtitle">Gestioná y consultá todos los turnos de tu negocio.</p>
+    </div>
+    <button class="btn-primary" (click)="goToday()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
+      Hoy
+    </button>
+  </div>
+
+  <div class="bookings-layout">
+
+    <!-- CALENDARIO -->
+    <div class="calendar-wrap">
+      <div class="cal-header">
+        <button class="cal-nav-btn" aria-label="Mes anterior" (click)="prevMonth()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <span class="cal-month-label">{{ MESES[currentMonth() - 1] }} {{ currentYear() }}</span>
+        <button class="cal-nav-btn" aria-label="Mes siguiente" (click)="nextMonth()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+
+      <div class="cal-dow">
+        @for (d of DIAS_HEADER; track d) {
+          <span class="cal-dow__item">{{ d }}</span>
+        }
+      </div>
+
+      <div class="cal-grid">
+        @for (day of calendarDays(); track day.date) {
+          <button class="cal-day"
+            [class.cal-day--other]="!day.isCurrentMonth"
+            [class.cal-day--today]="day.isToday"
+            [class.cal-day--selected]="day.isSelected"
+            [class.cal-day--has-bookings]="day.total > 0"
+            (click)="selectDay(day)"
+            [disabled]="!day.isCurrentMonth"
+            [attr.aria-label]="day.day + ' ' + MESES[currentMonth() - 1] + (day.total > 0 ? ', ' + day.total + ' turnos' : '')"
+            [attr.aria-pressed]="day.isSelected">
+            <span class="cal-day__num">{{ day.day }}</span>
+            @if (day.total > 0) {
+              <span class="cal-day__dot">{{ day.total }}</span>
+            }
+          </button>
+        }
+      </div>
+
+      <div class="cal-legend">
+        <span class="cal-legend__item">
+          <span class="cal-legend__dot"></span>
+          Turnos
+        </span>
+        <span class="cal-legend__item">
+          <span class="cal-legend__today-mark"></span>
+          Hoy
+        </span>
+      </div>
+    </div>
+
+    <!-- DETALLE DÍA -->
+    <div class="day-detail">
+
+      <div class="day-detail__header">
+        <div>
+          <p class="day-detail__fecha">{{ formatFecha(selectedFecha()) | titlecase }}</p>
+          <div class="day-detail__stats">
+            <span class="day-stat day-stat--total">{{ bookings().length }} total</span>
+            @if (totalConfirmadas() > 0) {
+              <span class="day-stat day-stat--green">{{ totalConfirmadas() }} confirmados</span>
+            }
+            @if (totalPendientes() > 0) {
+              <span class="day-stat day-stat--gold">{{ totalPendientes() }} pendientes</span>
+            }
+          </div>
+        </div>
+      </div>
+
+      <!-- Filtros -->
+      <div class="filters">
+        <div class="filter-search-wrap">
+          <svg class="filter-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="filter-search" type="text" placeholder="Buscar cliente..."
+            [value]="search()" (input)="onSearchInput($event)" aria-label="Buscar cliente" />
+        </div>
+        <label for="filter-estado" class="sr-only">Filtrar por estado</label>
+        <select id="filter-estado" class="filter-select" [value]="filterEstado()" (change)="onFilterChange($event)">
+          <option value="todos">Todos los estados</option>
+          <option value="pendiente">Pendiente</option>
+          <option value="confirmada">Confirmada</option>
+          <option value="cancelada">Cancelada</option>
+        </select>
+      </div>
+
+      <!-- Lista -->
+      @if (loading()) {
+        <div class="loading-state">
+          <span class="loading-state__spinner"></span>
+          Cargando...
+        </div>
+      } @else if (filtered().length === 0) {
+        <div class="empty-state">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
+          <p class="empty-state__title">
+            @if (bookings().length === 0) { Sin {{ terms.reserva() | lowercase }}s para este día }
+            @else { Sin resultados para la búsqueda }
+          </p>
+          <p class="empty-state__sub">
+            @if (bookings().length === 0) { Seleccioná otro día en el calendario. }
+            @else { Probá con otro nombre o filtro. }
+          </p>
+        </div>
+      } @else {
+
+        <!-- Cabecera de tabla -->
+        <div class="bookings-thead">
+          <span>Cliente</span>
+          <span>Servicio</span>
+          <span>Hora</span>
+          <span>Estado</span>
+          <span></span>
+        </div>
+
+        <div class="bookings-list">
+          @for (booking of filtered(); track booking.id) {
+            <div class="booking-row" [class.booking-row--cancelada]="booking.estado === 'cancelada'">
+
+              <!-- Cliente -->
+              <div class="booking-row__client">
+                <div class="client-avatar">
+                 {{ booking.cliente_nombre.charAt(0).toUpperCase() }}{{ (booking.cliente_nombre.split(' ')[1] || '').charAt(0).toUpperCase() }}
+                </div>
+                <div class="client-data">
+                  <span class="client-data__nombre">{{ booking.cliente_nombre }}</span>
+                  <span class="client-data__tel">{{ booking.cliente_telefono }}</span>
+                </div>
+              </div>
+
+              <!-- Servicio -->
+              <div class="booking-row__service">
+                <span class="service-nombre">{{ getServiceNombre(booking) }}</span>
+                <span class="service-barber">{{ getBarberNombre(booking.barber_id) }}</span>
+              </div>
+
+              <!-- Hora -->
+              <div class="booking-row__time">
+                <span class="time-start">{{ booking.hora_inicio.slice(0,5) }}</span>
+                <span class="time-end">{{ booking.hora_fin.slice(0,5) }}</span>
+              </div>
+
+              <!-- Estado -->
+              <div class="booking-row__estado">
+                <span class="estado-badge estado-badge--{{ booking.estado }}">
+                  @if (booking.estado === 'pendiente') { Pendiente }
+                  @if (booking.estado === 'confirmada') { Confirmada }
+                  @if (booking.estado === 'cancelada') { Cancelada }
+                </span>
+              </div>
+
+              <!-- Acciones -->
+              <div class="booking-row__actions">
+                @if (booking.estado !== 'cancelada') {
+                  @if (booking.estado === 'pendiente') {
+                    <button class="action-btn action-btn--confirm"
+                      (click)="updateEstado(booking.id, 'confirmada')">
+                      Confirmar
+                    </button>
+                  }
+                  <button class="action-btn action-btn--cancel"
+                    (click)="updateEstado(booking.id, 'cancelada')">
+                    Cancelar
+                  </button>
+                }
+              </div>
+
+            </div>
+          }
+        </div>
+      }
+
+    </div>
+  </div>
+</div>

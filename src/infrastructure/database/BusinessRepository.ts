@@ -44,6 +44,18 @@ export class BusinessRepository implements IBusinessRepository {
     return data as Business;
   }
 
+  async findByAnyCustomDomain(domain: string): Promise<Business | null> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("*")
+      .eq("custom_domain", domain)
+      .single();
+
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Business;
+  }
+
   async create(
     data: Omit<Business, "id" | "created_at" | "domain_verified" | "domain_verified_at" | "domain_added_at" | "onboarding_completed">,
   ): Promise<Business> {

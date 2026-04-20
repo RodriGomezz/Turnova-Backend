@@ -1,0 +1,295 @@
+<div class="stats-page">
+
+  <!-- HEADER -->
+  <div class="page-header">
+    <div>
+      <p class="page-eyebrow">Panel · Pro</p>
+      <h1 class="page-title">Estadísticas</h1>
+    </div>
+    <div class="stats-nav">
+      <button type="button" class="date-btn" aria-label="Mes anterior" (click)="prevMes()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </button>
+      <span class="stats-nav__label">{{ mesLabel() }}</span>
+      <button type="button" class="date-btn" aria-label="Mes siguiente"
+        [disabled]="isCurrentMonth()" (click)="nextMes()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="loading">
+      <span class="loading__spinner"></span>
+      <span>Cargando estadísticas...</span>
+    </div>
+  } @else if (stats()) {
+    @let r = stats()!.resumen;
+
+    <!-- KPIs PRINCIPALES -->
+    <div class="kpi-grid">
+
+      <div class="kpi-card">
+        <div class="kpi-card__icon kpi-card__icon--blue" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/>
+          </svg>
+        </div>
+        <div class="kpi-card__body">
+          <span class="kpi-card__label">{{ terms.reserva() }}s del mes</span>
+          <span class="kpi-card__value">{{ r.totalTurnos }}</span>
+          <span class="kpi-card__variacion"
+            [class.kpi-card__variacion--pos]="r.turnosVariacion !== null && r.turnosVariacion > 0"
+            [class.kpi-card__variacion--neg]="r.turnosVariacion !== null && r.turnosVariacion < 0">
+            {{ formatVariacion(r.turnosVariacion) }}
+          </span>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__icon kpi-card__icon--green" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 6v12m-3-2.818.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/>
+          </svg>
+        </div>
+        <div class="kpi-card__body">
+          <span class="kpi-card__label">Ingresos del mes</span>
+          <span class="kpi-card__value">${{ r.ingresosMes.toLocaleString('es-UY') }}</span>
+          <span class="kpi-card__variacion"
+            [class.kpi-card__variacion--pos]="r.ingresosVariacion !== null && r.ingresosVariacion > 0"
+            [class.kpi-card__variacion--neg]="r.ingresosVariacion !== null && r.ingresosVariacion < 0">
+            {{ formatVariacion(r.ingresosVariacion) }}
+          </span>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__icon kpi-card__icon--gold" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/>
+          </svg>
+        </div>
+        <div class="kpi-card__body">
+          <span class="kpi-card__label">Ingreso por {{ terms.reserva() | lowercase }}</span>
+          <span class="kpi-card__value">${{ ingresoPromedioPorTurno().toLocaleString('es-UY') }}</span>
+          <span class="kpi-card__sub">Promedio del mes</span>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__icon kpi-card__icon--red" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.75 9.75l4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/>
+          </svg>
+        </div>
+        <div class="kpi-card__body">
+          <span class="kpi-card__label">Tasa de cancelación</span>
+          <span class="kpi-card__value">{{ r.tasaCancelacion }}%</span>
+          <span class="kpi-card__sub">{{ r.cancelados }} de {{ r.totalTurnos + r.cancelados }}</span>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__icon kpi-card__icon--purple" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0z"/>
+          </svg>
+        </div>
+        <div class="kpi-card__body">
+          <span class="kpi-card__label">Clientes únicos</span>
+          <span class="kpi-card__value">{{ r.clientesNuevos + r.clientesRecurrentes }}</span>
+          <div class="kpi-card__clientes-detail">
+            <span class="kpi-badge kpi-badge--new">{{ r.clientesNuevos }} nuevos</span>
+            <span class="kpi-badge kpi-badge--rec">{{ r.clientesRecurrentes }} recurrentes</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__icon kpi-card__icon--blue" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125z"/>
+          </svg>
+        </div>
+        <div class="kpi-card__body">
+          <span class="kpi-card__label">Promedio por día activo</span>
+          <span class="kpi-card__value">{{ promedioTurnosDia() }}</span>
+          <span class="kpi-card__sub">{{ terms.reserva() | lowercase }}s</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- GRÁFICOS -->
+    <div class="charts-grid">
+
+      <!-- Gráfico 1: Turnos por día del mes -->
+      <div class="chart-card chart-card--wide">
+        <div class="chart-card__header">
+          <h2 class="chart-card__title">{{ terms.reserva() }}s por día</h2>
+          @if (mejorDia()) {
+            <span class="chart-card__badge">
+              Mejor día: {{ formatFecha(mejorDia()!.fecha) | titlecase }} · {{ mejorDia()!.total }} turnos
+            </span>
+          }
+        </div>
+        <div class="bar-chart" role="img" [attr.aria-label]="terms.reserva() + 's por día del mes'">
+          @for (d of getPorDiaLast15(); track d.fecha) {
+            <div class="bar-chart__col">
+              <div class="bar-chart__bar-wrap">
+                <div class="bar-chart__bar"
+                  [style.height.%]="getDayBarHeight(d.total)"
+                  [class.bar-chart__bar--highlight]="mejorDia()?.fecha === d.fecha"
+                  [attr.title]="d.total + ' turnos el día ' + d.day">
+                </div>
+              </div>
+              <span class="bar-chart__label">{{ d.day }}</span>
+            </div>
+          }
+        </div>
+        <p class="chart-card__hint">Últimos 15 días del mes</p>
+      </div>
+
+      <!-- Gráfico 2: Distribución por hora -->
+      <div class="chart-card">
+        <div class="chart-card__header">
+          <h2 class="chart-card__title">Distribución horaria</h2>
+          @if (stats()!.horaPico) {
+            <span class="chart-card__badge">Pico: {{ stats()!.horaPico }}</span>
+          }
+        </div>
+        <div class="bar-chart bar-chart--hora" role="img" aria-label="Distribución de turnos por hora del día">
+          @for (h of stats()!.distribucionHoras; track h.hora) {
+            <div class="bar-chart__col">
+              <div class="bar-chart__bar-wrap">
+                <div class="bar-chart__bar bar-chart__bar--gold"
+                  [style.height.%]="getHoraBarHeight(h.count)"
+                  [class.bar-chart__bar--highlight]="stats()!.horaPico === h.hora"
+                  [attr.title]="h.count + ' turnos a las ' + h.hora">
+                </div>
+              </div>
+              <span class="bar-chart__label">{{ h.hora.slice(0, 2) }}</span>
+            </div>
+          }
+        </div>
+        <p class="chart-card__hint">Hora del día (solo horas con actividad)</p>
+      </div>
+
+    </div>
+
+    <!-- INSIGHTS -->
+    <div class="insights-grid">
+
+      @if (topProfesionalNombre()) {
+        <div class="insight-card">
+          <div class="insight-card__icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0zM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+            </svg>
+          </div>
+          <div class="insight-card__body">
+            <span class="insight-card__label">{{ terms.profesional() }} más solicitado</span>
+            <span class="insight-card__value">{{ topProfesionalNombre() }}</span>
+          </div>
+        </div>
+      }
+
+      @if (stats()!.topServicio) {
+        <div class="insight-card">
+          <div class="insight-card__icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/>
+            </svg>
+          </div>
+          <div class="insight-card__body">
+            <span class="insight-card__label">{{ terms.servicio() }} más solicitado</span>
+            <span class="insight-card__value">{{ stats()!.topServicio!.nombre }}</span>
+            <span class="insight-card__sub">{{ stats()!.topServicio!.count }} veces este mes</span>
+          </div>
+        </div>
+      }
+
+      @if (mejorDia()) {
+        <div class="insight-card">
+          <div class="insight-card__icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5z"/>
+            </svg>
+          </div>
+          <div class="insight-card__body">
+            <span class="insight-card__label">Mejor día del mes</span>
+            <span class="insight-card__value">{{ formatFecha(mejorDia()!.fecha) | titlecase }}</span>
+            <span class="insight-card__sub">{{ mejorDia()!.total }} turnos</span>
+          </div>
+        </div>
+      }
+
+      @if (stats()!.horaPico) {
+        <div class="insight-card">
+          <div class="insight-card__icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/>
+            </svg>
+          </div>
+          <div class="insight-card__body">
+            <span class="insight-card__label">Hora pico del mes</span>
+            <span class="insight-card__value">{{ stats()!.horaPico }}</span>
+            <span class="insight-card__sub">Franja más reservada</span>
+          </div>
+        </div>
+      }
+
+      <!-- Retención -->
+      @if (r.clientesNuevos + r.clientesRecurrentes > 0) {
+        <div class="insight-card insight-card--wide">
+          <div class="insight-card__icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/>
+            </svg>
+          </div>
+          <div class="insight-card__body">
+            <span class="insight-card__label">Tasa de retención</span>
+            <span class="insight-card__value">{{ tasaRetencion }}%</span>
+<div class="retencion-bar">
+  <div class="retencion-bar__new"
+    [style.width.%]="r.clientesNuevos + r.clientesRecurrentes > 0
+      ? (r.clientesNuevos / (r.clientesNuevos + r.clientesRecurrentes) * 100)
+      : 0"
+    title="Clientes nuevos">
+  </div>
+  <div class="retencion-bar__rec"
+    [style.width.%]="r.clientesNuevos + r.clientesRecurrentes > 0
+      ? (r.clientesRecurrentes / (r.clientesNuevos + r.clientesRecurrentes) * 100)
+      : 0"
+    title="Clientes recurrentes">
+  </div>
+</div>
+            <div class="retencion-legend">
+              <span class="retencion-legend__item retencion-legend__item--new">
+                {{ r.clientesNuevos }} nuevos
+              </span>
+              <span class="retencion-legend__item retencion-legend__item--rec">
+                {{ r.clientesRecurrentes }} recurrentes
+              </span>
+            </div>
+          </div>
+        </div>
+      }
+
+    </div>
+
+  } @else if (!loading()) {
+    <div class="empty">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="empty__icon" aria-hidden="true">
+        <path d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125z"/>
+      </svg>
+      <p class="empty__title">Sin datos para este período</p>
+      <p class="empty__sub">Empezarás a ver estadísticas cuando tengas turnos registrados.</p>
+    </div>
+  }
+
+</div>

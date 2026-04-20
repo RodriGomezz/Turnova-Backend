@@ -4,6 +4,7 @@ export interface PlanLimits {
   recordatorios: boolean;
   estadisticas: boolean;
   multiSucursal: boolean;
+  customDomain: boolean;
 }
 
 export const PLAN_LIMITS: Record<string, PlanLimits> = {
@@ -13,6 +14,7 @@ export const PLAN_LIMITS: Record<string, PlanLimits> = {
     recordatorios: false,
     estadisticas: false,
     multiSucursal: false,
+    customDomain: false,
   },
   pro: {
     maxBarberos: 5,
@@ -20,6 +22,7 @@ export const PLAN_LIMITS: Record<string, PlanLimits> = {
     recordatorios: true,
     estadisticas: true,
     multiSucursal: false,
+    customDomain: true,
   },
   business: {
     maxBarberos: Infinity,
@@ -27,6 +30,7 @@ export const PLAN_LIMITS: Record<string, PlanLimits> = {
     recordatorios: true,
     estadisticas: true,
     multiSucursal: true,
+    customDomain: true,
   },
 };
 

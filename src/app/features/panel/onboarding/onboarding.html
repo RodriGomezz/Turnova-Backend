@@ -1,0 +1,355 @@
+<div class="onboarding-overlay">
+  <div class="onboarding-modal">
+
+    <!-- Header -->
+    <div class="onboarding-modal__header">
+      <div class="onboarding-modal__progress">
+        <div class="progress-bar">
+          <div class="progress-bar__fill" [style.width.%]="progressPct()"></div>
+        </div>
+        <span class="progress-label">Paso {{ step() }} de {{ totalSteps }}</span>
+      </div>
+      <button type="button" class="onboarding-modal__skip" (click)="skip()">
+        Saltar configuración
+      </button>
+    </div>
+
+    <!-- PASO 1: Profesional -->
+    @if (step() === 1) {
+      <div class="onboarding-step">
+        <div class="onboarding-step__icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0zM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+          </svg>
+        </div>
+        <h2 class="onboarding-step__title">
+          ¿Quién atiende en {{ getNombreTipo() }}?
+        </h2>
+        <p class="onboarding-step__hint">
+          Agregá tu primer {{ terms.profesional() | lowercase }}. Podés agregar más después.
+        </p>
+
+        <div class="form">
+          <div class="field">
+            <label class="field__label" for="ob-prof-nombre">
+              Nombre del {{ terms.profesional() | lowercase }} *
+            </label>
+            <input
+              id="ob-prof-nombre"
+              class="field__input"
+              type="text"
+              [placeholder]="'Ej: ' + (terms.profesional() === 'Barbero' ? 'Kevin' : terms.profesional() === 'Doctor' ? 'Dr. García' : 'Ana')"
+              [value]="profesionalNombre()"
+              (input)="profesionalNombre.set($any($event.target).value)"
+            />
+          </div>
+          <div class="field">
+            <label class="field__label" for="ob-prof-desc">Descripción (opcional)</label>
+            <input
+              id="ob-prof-desc"
+              class="field__input"
+              type="text"
+              [placeholder]="'Ej: Especialista en ' + (terms.servicio() | lowercase) + 's'"
+              [value]="profesionalDescripcion()"
+              (input)="profesionalDescripcion.set($any($event.target).value)"
+            />
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- PASO 2: Servicio -->
+    @if (step() === 2) {
+      <div class="onboarding-step">
+        <div class="onboarding-step__icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/>
+          </svg>
+        </div>
+        <h2 class="onboarding-step__title">
+          ¿Qué {{ terms.servicio() | lowercase }}s ofrecés?
+        </h2>
+        <p class="onboarding-step__hint">
+          Agregá tu primer {{ terms.servicio() | lowercase }}. Podés agregar más después.
+        </p>
+
+        @if (defaults().length > 0) {
+          <button type="button" class="defaults-toggle"
+            [attr.aria-expanded]="showDefaults()"
+            (click)="showDefaults.set(!showDefaults())">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+            Usar un {{ terms.servicio() | lowercase }} sugerido
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+              [style.transform]="showDefaults() ? 'rotate(180deg)' : 'none'">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+
+          @if (showDefaults()) {
+            <div class="defaults-grid">
+              @for (def of defaults(); track def.id) {
+                <button type="button" class="default-item" (click)="useDefault(def)">
+                  <span class="default-item__nombre">{{ def.nombre }}</span>
+                  <span class="default-item__meta">
+                    {{ def.duracion_minutos }} min · ${{ def.precio_sugerido.toLocaleString('es-UY') }}
+                  </span>
+                </button>
+              }
+            </div>
+          }
+        }
+
+        <div class="form">
+          <div class="field">
+            <label class="field__label" for="ob-svc-nombre">
+              Nombre del {{ terms.servicio() | lowercase }} *
+            </label>
+            <input
+              id="ob-svc-nombre"
+              class="field__input"
+              type="text"
+              [placeholder]="'Ej: ' + terms.servicio()"
+              [value]="servicioNombre()"
+              (input)="servicioNombre.set($any($event.target).value)"
+            />
+          </div>
+          <div class="fields-row">
+            <div class="field">
+              <label class="field__label" for="ob-svc-duracion">Duración (minutos) *</label>
+              <input
+                id="ob-svc-duracion"
+                class="field__input"
+                type="number"
+                min="5"
+                max="480"
+                placeholder="30"
+                [value]="servicioDuracion()"
+                (input)="servicioDuracion.set(+$any($event.target).value)"
+              />
+            </div>
+            <div class="field">
+              <label class="field__label" for="ob-svc-precio">Precio ($UYU)</label>
+              <input
+                id="ob-svc-precio"
+                class="field__input"
+                type="number"
+                min="0"
+                placeholder="500"
+                [value]="servicioPrecio()"
+                (input)="servicioPrecio.set(+$any($event.target).value)"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- PASO 3: Horarios -->
+    @if (step() === 3) {
+      <div class="onboarding-step">
+        <div class="onboarding-step__icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/>
+          </svg>
+        </div>
+        <h2 class="onboarding-step__title">¿Cuándo atendés?</h2>
+        <p class="onboarding-step__hint">
+          Seleccioná los días y horarios. Podés ajustarlos después en detalle.
+        </p>
+
+        <div class="dias-grid">
+          @for (dia of diasHorario(); track dia.dia) {
+            <div class="dia-row" [class.dia-row--active]="dia.activo">
+              <div class="dia-row__toggle">
+                <button
+                  type="button"
+                  class="toggle"
+                  [class.toggle--on]="dia.activo"
+                  [attr.aria-label]="(dia.activo ? 'Desactivar ' : 'Activar ') + dia.label"
+                  [attr.aria-pressed]="dia.activo"
+                  (click)="toggleDia(dia)"
+                >
+                  <span class="toggle__knob"></span>
+                </button>
+                <span class="dia-row__label">{{ dia.label }}</span>
+              </div>
+
+              @if (dia.activo) {
+                <div class="dia-row__horario">
+                  <div class="horario-field">
+                    <label [for]="'ob-inicio-' + dia.dia" class="sr-only">
+                      Hora inicio {{ dia.label }}
+                    </label>
+                    <input
+                      [id]="'ob-inicio-' + dia.dia"
+                      class="horario-input"
+                      type="time"
+                      [value]="dia.hora_inicio"
+                      (change)="setHorario(dia.dia, 'hora_inicio', $any($event.target).value)"
+                    />
+                  </div>
+                  <span class="horario-sep" aria-hidden="true">→</span>
+                  <div class="horario-field">
+                    <label [for]="'ob-fin-' + dia.dia" class="sr-only">
+                      Hora fin {{ dia.label }}
+                    </label>
+                    <input
+                      [id]="'ob-fin-' + dia.dia"
+                      class="horario-input"
+                      type="time"
+                      [value]="dia.hora_fin"
+                      (change)="setHorario(dia.dia, 'hora_fin', $any($event.target).value)"
+                    />
+                  </div>
+                </div>
+              } @else {
+                <span class="dia-row__closed">Cerrado</span>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- PASO 4: Colores -->
+    @if (step() === 4) {
+      <div class="onboarding-step">
+        <div class="onboarding-step__icon" aria-hidden="true">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"/>
+          </svg>
+        </div>
+        <h2 class="onboarding-step__title">¿Cómo querés que se vea tu página?</h2>
+        <p class="onboarding-step__hint">
+          Elegí una paleta de colores. Podés personalizar todo después.
+        </p>
+
+        <div class="paletas-grid" role="group" aria-label="Paletas de colores">
+          @for (paleta of paletas; track paleta.nombre) {
+            <button
+              type="button"
+              class="paleta-card"
+              [class.paleta-card--active]="colorFondo() === paleta.fondo && colorAcento() === paleta.acento"
+              [attr.aria-label]="'Seleccionar paleta ' + paleta.nombre"
+              [attr.aria-pressed]="colorFondo() === paleta.fondo && colorAcento() === paleta.acento"
+              (click)="selectPaleta(paleta)"
+            >
+              <div class="paleta-card__preview" aria-hidden="true"
+                [style.background]="paleta.fondo">
+                <div class="paleta-card__acento" [style.background]="paleta.acento"></div>
+              </div>
+              <span class="paleta-card__nombre">{{ paleta.nombre }}</span>
+            </button>
+          }
+        </div>
+
+        <!-- Preview -->
+        <div class="onboarding-preview" aria-hidden="true"
+          [style.background]="colorFondo()"
+          [style.color]="esOscuro(colorFondo()) ? '#F5F2EC' : '#0A0A0A'">
+          <div class="onboarding-preview__header">
+            <span class="onboarding-preview__name">Tu negocio</span>
+            <div class="onboarding-preview__btn"
+              [style.background]="colorAcento()"
+              [style.color]="esOscuro(colorAcento()) ? '#F5F2EC' : '#0A0A0A'">
+              Reservar
+            </div>
+          </div>
+          <div class="onboarding-preview__sub"
+            [style.color]="esOscuro(colorFondo()) ? 'rgba(245,242,236,0.6)' : 'rgba(10,10,10,0.5)'">
+            Así verán tu página tus clientes
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- PASO 5: Listo -->
+    @if (step() === 5) {
+      <div class="onboarding-step onboarding-step--final">
+        <div class="onboarding-final__check" aria-hidden="true">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/>
+          </svg>
+        </div>
+        <h2 class="onboarding-step__title">¡Todo listo!</h2>
+        <p class="onboarding-step__hint">
+          Tu página pública está configurada. Compartí el link con tus clientes y empezá a recibir turnos.
+        </p>
+
+        <div class="onboarding-summary">
+          <div class="summary-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>{{ terms.profesional() }}: <strong>{{ profesionalNombre() }}</strong></span>
+          </div>
+          <div class="summary-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>{{ terms.servicio() }}: <strong>{{ servicioNombre() }}</strong></span>
+          </div>
+          <div class="summary-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>
+              Horarios: <strong>{{ diasActivosCount }} días configurados</strong>
+            </span>
+          </div>
+          <div class="summary-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>Colores personalizados</span>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Footer -->
+    <div class="onboarding-modal__footer">
+      @if (step() > 1 && step() < 5) {
+        <button type="button" class="btn-ghost" (click)="back()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+          </svg>
+          Atrás
+        </button>
+      } @else {
+        <div></div>
+      }
+
+      @if (step() < 4) {
+        <button type="button" class="btn-primary" (click)="next()">
+          Siguiente
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+          </svg>
+        </button>
+      } @else if (step() === 4) {
+        <button type="button" class="btn-primary" (click)="next()">
+          Ver resumen
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+          </svg>
+        </button>
+      } @else {
+        <button type="button" class="btn-primary" (click)="finish()" [disabled]="saving()">
+          @if (saving()) {
+            <span class="spinner spinner--small spinner--light" aria-hidden="true"></span>
+            Configurando...
+          } @else {
+            Ir al panel
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+            </svg>
+          }
+        </button>
+      }
+    </div>
+
+  </div>
+</div>

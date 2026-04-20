@@ -1,0 +1,199 @@
+<div class="services">
+
+  <div class="page-header">
+    <div>
+      <p class="page-eyebrow">Panel</p>
+      <h1 class="page-title">{{ terms.servicio() }}s</h1>
+    </div>
+    <button type="button" class="btn-primary" (click)="openCreate()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+      Agregar {{ terms.servicio() | lowercase }}
+    </button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading">
+      <span class="spinner"></span>
+      <span>Cargando...</span>
+    </div>
+  } @else if (services().length === 0) {
+    <div class="empty">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="empty__icon" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <p class="empty__title">Sin {{ terms.servicio() | lowercase }}s todavía</p>
+      <p class="empty__sub">
+        Agregá tus {{ terms.servicio() | lowercase }}s para que los clientes puedan reservar.
+      </p>
+      <button type="button" class="btn-primary" (click)="openCreate()">
+        Agregar {{ terms.servicio() | lowercase }}
+      </button>
+    </div>
+  } @else {
+    <div class="services-list">
+      @for (service of services(); track service.id) {
+        <div class="service-card">
+          <div class="service-card__main">
+            <div class="service-card__info">
+              <p class="service-card__nombre">{{ service.nombre }}</p>
+              @if (service.descripcion) {
+                <p class="service-card__desc">{{ service.descripcion }}</p>
+              }
+              @if (service.incluye) {
+                <p class="service-card__incluye">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  {{ service.incluye }}
+                </p>
+              }
+            </div>
+            <div class="service-card__meta">
+              <div class="meta-item">
+                <span class="meta-label">Duración</span>
+                <span class="meta-value">{{ service.duracion_minutos }} min</span>
+              </div>
+              <div class="meta-divider"></div>
+              <div class="meta-item">
+                <span class="meta-label">Precio</span>
+                <span class="meta-value meta-value--precio">{{ formatPrecio(service) }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="service-card__actions">
+            @if (confirmingDeleteId() === service.id) {
+              <span class="confirm-text">¿Desactivar?</span>
+              <button type="button" class="btn-delete" (click)="delete(service.id)">Sí</button>
+              <button type="button" class="btn-ghost" (click)="cancelDelete()">No</button>
+            } @else {
+              <button type="button" class="btn-edit" (click)="openEdit(service)">Editar</button>
+              <button type="button" class="btn-delete" (click)="confirmDelete(service.id)">Desactivar</button>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+
+  @if (showForm()) {
+    <div class="modal-backdrop" (click)="closeForm()">
+      <div class="modal" (click)="$event.stopPropagation()" role="dialog"
+        [attr.aria-label]="editingId() ? 'Editar ' + terms.servicio() : 'Nuevo ' + terms.servicio()">
+
+        <div class="modal__header">
+          <h2 class="modal__title">
+            @if (editingId()) { Editar {{ terms.servicio() | lowercase }} }
+            @else { Nuevo {{ terms.servicio() | lowercase }} }
+          </h2>
+          <button type="button" class="modal__close" aria-label="Cerrar" (click)="closeForm()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Sugeridos por tipo de negocio -->
+        @if (!editingId() && defaults().length > 0) {
+          <div class="defaults-section">
+            <button type="button" class="defaults-toggle"
+              [attr.aria-expanded]="showDefaults()"
+              (click)="showDefaults.set(!showDefaults())">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              </svg>
+              Usar un {{ terms.servicio() | lowercase }} sugerido para tu negocio
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                [style.transform]="showDefaults() ? 'rotate(180deg)' : 'rotate(0)'">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+
+            @if (showDefaults()) {
+              <div class="defaults-grid">
+                @for (def of defaults(); track def.id) {
+                  <button type="button" class="default-item" (click)="useDefault(def)">
+                    <span class="default-item__nombre">{{ def.nombre }}</span>
+                    <span class="default-item__meta">
+                      {{ def.duracion_minutos }} min ·
+                      ${{ def.precio_sugerido.toLocaleString('es-UY') }}
+                      @if (def.precio_hasta) {
+                        – ${{ def.precio_hasta.toLocaleString('es-UY') }}
+                      }
+                    </span>
+                    @if (def.descripcion) {
+                      <span class="default-item__desc">{{ def.descripcion }}</span>
+                    }
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        <div class="form">
+          <div class="field">
+            <label class="field__label" for="svc-nombre">Nombre *</label>
+            <input id="svc-nombre" class="field__input" type="text"
+              [placeholder]="terms.servicio() === 'Sesión' ? 'Ej: Sesión individual' : terms.servicio() === 'Clase' ? 'Ej: Clase de guitarra' : terms.servicio() === 'Consulta' ? 'Ej: Consulta inicial' : 'Ej: ' + terms.servicio()"
+              [(ngModel)]="form.nombre" name="nombre" />
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="svc-descripcion">Descripción</label>
+            <textarea id="svc-descripcion" class="field__input field__textarea"
+              [placeholder]="'Describí brevemente este ' + (terms.servicio() | lowercase)"
+              [(ngModel)]="form.descripcion" name="descripcion" rows="2"></textarea>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="svc-incluye">Incluye</label>
+            <input id="svc-incluye" class="field__input" type="text"
+              placeholder="Ej: Lavado, secado, etc."
+              [(ngModel)]="form.incluye" name="incluye" />
+          </div>
+
+          <div class="fields-row">
+            <div class="field">
+              <label class="field__label" for="svc-duracion">Duración (minutos) *</label>
+              <input id="svc-duracion" class="field__input" type="number"
+                min="5" max="480" placeholder="30"
+                [(ngModel)]="form.duracion_minutos" name="duracion_minutos" />
+            </div>
+            <div class="field">
+              <label class="field__label" for="svc-precio">Precio base ($UYU) *</label>
+              <input id="svc-precio" class="field__input" type="number"
+                min="0" placeholder="500"
+                [(ngModel)]="form.precio" name="precio" />
+            </div>
+            <div class="field">
+              <label class="field__label" for="svc-precio-hasta">Precio máximo ($UYU)</label>
+              <input id="svc-precio-hasta" class="field__input" type="number"
+                min="0" placeholder="Opcional"
+                [(ngModel)]="form.precio_hasta" name="precio_hasta" />
+              <span class="field__hint">Solo para servicios con rango de precio</span>
+            </div>
+          </div>
+
+          <div class="modal__actions">
+            <button type="button" class="btn-ghost" (click)="closeForm()">Cancelar</button>
+            <button type="button" class="btn-primary" (click)="save()" [disabled]="saving()">
+              @if (saving()) {
+                <span class="spinner spinner--small spinner--light" aria-hidden="true"></span>
+                Guardando...
+              } @else {
+                @if (editingId()) { Guardar cambios }
+                @else { Crear {{ terms.servicio() | lowercase }} }
+              }
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  }
+
+</div>

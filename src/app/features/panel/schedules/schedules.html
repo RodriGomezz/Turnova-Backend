@@ -1,0 +1,233 @@
+<div class="schedules">
+
+  <div class="page-header">
+    <div>
+      <p class="page-eyebrow">Panel</p>
+      <h1 class="page-title">Horarios</h1>
+      <p class="page-subtitle">Configurá los días y horarios en que atendés.</p>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="loading-state">
+      <span class="loading-state__spinner"></span>
+      <span>Cargando...</span>
+    </div>
+  } @else {
+
+    <!-- DÍAS Y HORARIOS -->
+    <div class="section">
+      <div class="section__header">
+        <p class="section__label">Días y horarios de atención</p>
+        <p class="section__hint">Activá los días que atendés y configurá el horario de apertura y cierre.</p>
+      </div>
+
+      <div class="dias-grid">
+        @for (dia of dias(); track dia.dia_semana) {
+          <div class="dia-card" [class.dia-card--active]="dia.activo">
+
+            <div class="dia-card__header">
+              <div class="dia-card__toggle-wrap">
+                <button
+                  type="button"
+                  class="toggle"
+                  [class.toggle--on]="dia.activo"
+                  (click)="toggleDia(dia)"
+                  [disabled]="isSaving(dia.dia_semana)"
+                  [attr.aria-label]="(dia.activo ? 'Desactivar ' : 'Activar ') + dia.label"
+                  [attr.aria-pressed]="dia.activo">
+                  <span class="toggle__knob"></span>
+                </button>
+                <span class="dia-card__label">{{ dia.label }}</span>
+              </div>
+              @if (isSaving(dia.dia_semana)) {
+                <span class="spinner spinner--small" aria-hidden="true"></span>
+              } @else if (dia.activo) {
+                <span class="dia-card__status dia-card__status--open">Abierto</span>
+              } @else {
+                <span class="dia-card__status dia-card__status--closed">Cerrado</span>
+              }
+            </div>
+
+            @if (dia.activo) {
+              <div class="dia-card__horario">
+                <div class="horario-field">
+                  <label class="horario-label" [for]="'inicio-' + dia.dia_semana">Desde</label>
+                  <input
+                    class="horario-input"
+                    type="time"
+                    [id]="'inicio-' + dia.dia_semana"
+                    [name]="'inicio-' + dia.dia_semana"
+                    [value]="getHorario(dia.dia_semana).hora_inicio"
+                    (change)="setHorario(dia.dia_semana, 'hora_inicio', $any($event.target).value)"
+                  />
+                </div>
+                <span class="horario-sep">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </span>
+                <div class="horario-field">
+                  <label class="horario-label" [for]="'fin-' + dia.dia_semana">Hasta</label>
+                  <input
+                    class="horario-input"
+                    type="time"
+                    [id]="'fin-' + dia.dia_semana"
+                    [name]="'fin-' + dia.dia_semana"
+                    [value]="getHorario(dia.dia_semana).hora_fin"
+                    (change)="setHorario(dia.dia_semana, 'hora_fin', $any($event.target).value)"
+                  />
+                </div>
+                <button
+                  type="button"
+                  class="btn-save-horario"
+                  (click)="saveHorario(dia)"
+                  [disabled]="isSaving(dia.dia_semana)">
+                  Guardar
+                </button>
+              </div>
+            }
+
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- FECHAS BLOQUEADAS -->
+    <div class="section">
+      <div class="section__header section__header--row">
+        <div>
+          <p class="section__label">Fechas bloqueadas</p>
+          <p class="section__hint">Feriados, vacaciones o días que no atendés.</p>
+        </div>
+        <button type="button" class="btn-primary" (click)="openBlockForm()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4.5v15m7.5-7.5h-15"/></svg>
+          Bloquear fecha
+        </button>
+      </div>
+
+      @if (blockedDates().length === 0) {
+        <div class="empty-state">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
+          <p class="empty-state__title">Sin fechas bloqueadas</p>
+          <p class="empty-state__sub">Los clientes pueden reservar cualquier día habilitado.</p>
+        </div>
+      } @else {
+
+        <!-- Cabecera tabla -->
+        <div class="blocked-thead">
+          <span>Fecha</span>
+          <span>Profesional</span>
+          <span>Motivo</span>
+          <span></span>
+        </div>
+
+        <div class="blocked-list">
+          @for (block of blockedDates(); track block.id) {
+            <div class="blocked-item">
+              <div class="blocked-item__fecha">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
+                <span>
+                  {{ formatFecha(block.fecha) | titlecase }}
+                  @if (block.fecha_fin && block.fecha_fin !== block.fecha) {
+                    <span class="blocked-item__arrow">→</span>
+                    {{ formatFecha(block.fecha_fin) | titlecase }}
+                  }
+                </span>
+              </div>
+
+              <div class="blocked-item__barber">
+                @if (block.barber_id) {
+                  <span class="barber-pill">{{ block.barbers?.nombre ?? 'Profesional' }}</span>
+                } @else {
+                  <span class="blocked-item__all">Todo el negocio</span>
+                }
+              </div>
+
+              <div class="blocked-item__motivo">
+                @if (block.motivo) {
+                  {{ block.motivo }}
+                } @else {
+                  <span class="blocked-item__no-motivo">—</span>
+                }
+              </div>
+
+              <div class="blocked-item__actions">
+                @if (confirmingUnblockId() === block.id) {
+                  <span class="confirm-text">¿Desbloquear?</span>
+                  <button type="button" class="action-btn action-btn--confirm" (click)="deleteBlock(block.id)">Sí</button>
+                  <button type="button" class="action-btn action-btn--ghost" (click)="cancelUnblock()">No</button>
+                } @else {
+                  <button type="button" class="action-btn action-btn--cancel" (click)="confirmUnblock(block.id)">
+                    Desbloquear
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+
+  }
+
+  <!-- MODAL BLOQUEAR FECHA -->
+  @if (showBlockForm()) {
+    <div class="modal-backdrop" (click)="closeBlockForm()">
+      <div class="modal" (click)="$event.stopPropagation()" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+
+        <div class="modal__header">
+          <div>
+            <p class="modal__eyebrow">Horarios</p>
+            <h2 class="modal__title" id="modal-title">Bloquear fechas</h2>
+          </div>
+          <button type="button" class="modal__close" (click)="closeBlockForm()" aria-label="Cerrar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <div class="modal__body">
+          <div class="fields-row">
+            <div class="field">
+              <label class="field__label" for="block-fecha">Fecha inicio *</label>
+              <input id="block-fecha" class="field__input" type="date" [(ngModel)]="blockForm.fecha" name="fecha" />
+            </div>
+            <div class="field">
+              <label class="field__label" for="block-fecha-fin">Fecha fin</label>
+              <input id="block-fecha-fin" class="field__input" type="date" [(ngModel)]="blockForm.fecha_fin" name="fecha_fin" [min]="blockForm.fecha" />
+              <span class="field__hint">Dejá vacío para bloquear un solo día.</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="block-barber">Profesional</label>
+            <select id="block-barber" class="field__input" [(ngModel)]="blockForm.barber_id" name="barber_id">
+              <option value="">Todo el negocio</option>
+              @for (barber of barbers(); track barber.id) {
+                <option [value]="barber.id">{{ barber.nombre }}</option>
+              }
+            </select>
+            <span class="field__hint">Elegí un profesional para bloquear solo su agenda.</span>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="block-motivo">Motivo (opcional)</label>
+            <input id="block-motivo" class="field__input" type="text" placeholder="Feriado, vacaciones..." [(ngModel)]="blockForm.motivo" name="motivo" />
+          </div>
+        </div>
+
+        <div class="modal__footer">
+          <button type="button" class="btn-ghost" (click)="closeBlockForm()">Cancelar</button>
+          <button type="button" class="btn-primary" (click)="saveBlock()" [disabled]="savingBlock()">
+            @if (savingBlock()) {
+              <span class="spinner spinner--small spinner--light" aria-hidden="true"></span>
+              Guardando...
+            } @else {
+              Bloquear fecha
+            }
+          </button>
+        </div>
+
+      </div>
+    </div>
+  }
+
+</div>

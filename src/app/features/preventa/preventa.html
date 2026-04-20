@@ -1,0 +1,76 @@
+<div class="preventa">
+  <div class="preventa__glow preventa__glow--center"></div>
+  <div class="preventa__line preventa__line--left"></div>
+  <div class="preventa__line preventa__line--right"></div>
+
+  <div class="preventa__page">
+    <nav class="preventa__nav">
+      <a class="preventa__logo" routerLink="/">KRONU</a>
+      <div class="preventa__nav-copy">Uruguay · 2026</div>
+    </nav>
+
+    <main class="preventa__hero">
+      <div class="preventa__tag">
+        <span class="preventa__tag-dot"></span>
+        <span class="preventa__tag-text">Pre-lanzamiento abierto</span>
+      </div>
+
+      <h1 class="preventa__title">Pronto.</h1>
+      <p class="preventa__subtitle">Tu agenda, sin el caos.</p>
+
+      <div class="preventa__ornament">
+        <span></span>
+        <i></i>
+        <span></span>
+      </div>
+
+      <p class="preventa__description">
+        Kronu es el sistema de reservas online para
+        <strong>barberias, peluquerias, spas y mas</strong> de Uruguay.
+        Estamos preparando el lanzamiento y mientras tanto ya podes asegurar tu
+        lugar con precio fundador.
+      </p>
+
+      @if (!launchReached()) {
+        <section class="preventa__countdown" aria-label="Cuenta regresiva al lanzamiento">
+          @for (unit of countdownUnits(); track unit.label) {
+            <div class="preventa__countdown-unit">
+              <strong>{{ unit.value }}</strong>
+              <span>{{ unit.label }}</span>
+            </div>
+          }
+        </section>
+      } @else {
+        <div class="preventa__launched">Los cupos fundadores siguen abiertos por tiempo limitado.</div>
+      }
+
+      <div class="preventa__actions">
+        <p class="preventa__actions-label">Asegura tu precio fundador ahora</p>
+        <a class="preventa__cta" routerLink="/fundadores">
+          Quiero mi lugar fundador
+          <span>-></span>
+        </a>
+        <p class="preventa__note">Solo 100 lugares · 50% off el primer ano · Sin tarjeta</p>
+      </div>
+
+      <div class="preventa__chips">
+        @for (chip of chips; track chip) {
+          <div class="preventa__chip">
+            <span class="preventa__chip-icon"></span>
+            <span>{{ chip }}</span>
+          </div>
+        }
+      </div>
+    </main>
+
+    <footer class="preventa__footer">
+      <div class="preventa__footer-logo">KRONU</div>
+      <div class="preventa__footer-links">
+        <a routerLink="/landing">Landing completa</a>
+        <a routerLink="/fundadores">Precio fundador</a>
+        <a href="mailto:hola@kronu.pro">Contacto</a>
+      </div>
+      <div class="preventa__footer-copy">© 2026 Kronu · Uruguay</div>
+    </footer>
+  </div>
+</div>

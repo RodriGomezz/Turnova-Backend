@@ -1,11 +1,34 @@
 import { SubscriptionRepository } from "../database/SubscriptionRepository";
 import { BusinessRepository } from "../database/BusinessRepository";
 import { logger } from "../logger";
+import {
+  shouldDegradeEndedCanceledSubscription,
+  shouldDegradeExpiredGracePeriod,
+} from "../../domain/subscription-access";
 
 const INTERVAL_MS = 60 * 60 * 1000; // cada hora
 
 const subscriptionRepository = new SubscriptionRepository();
 const businessRepository = new BusinessRepository();
+
+async function downgradeBusinessToStarter(
+  businessId: string,
+  subscriptionId: string,
+  nextStatus: "expired",
+  reason: Record<string, unknown>,
+): Promise<void> {
+  await businessRepository.update(businessId, {
+    plan: "starter",
+  });
+
+  await subscriptionRepository.updateStatus(subscriptionId, nextStatus);
+
+  logger.info("Plan degradado a Starter por suscripción vencida", {
+    businessId,
+    subscriptionId,
+    ...reason,
+  });
+}
 
 async function processExpiredGracePeriods(): Promise<void> {
   const expired = await subscriptionRepository.findExpiredGracePeriods();
@@ -15,20 +38,17 @@ async function processExpiredGracePeriods(): Promise<void> {
   logger.info(`Procesando ${expired.length} suscripción(es) con gracia expirada`);
 
   for (const subscription of expired) {
+    if (!shouldDegradeExpiredGracePeriod(subscription)) continue;
+
     try {
-      await businessRepository.update(subscription.business_id, {
-        plan: "starter",
-      });
-
-      await subscriptionRepository.updateStatus(subscription.id, "expired");
-
-      logger.info("Plan degradado a Starter por gracia expirada", {
-        businessId: subscription.business_id,
-        subscriptionId: subscription.id,
-        gracePeriodEndsAt: subscription.grace_period_ends_at,
-      });
+      await downgradeBusinessToStarter(
+        subscription.business_id,
+        subscription.id,
+        "expired",
+        { gracePeriodEndsAt: subscription.grace_period_ends_at },
+      );
     } catch (err) {
-      logger.error("Error procesando suscripción expirada", {
+      logger.error("Error procesando suscripción con gracia expirada", {
         subscriptionId: subscription.id,
         businessId: subscription.business_id,
         error: err instanceof Error ? err.message : err,
@@ -37,17 +57,49 @@ async function processExpiredGracePeriods(): Promise<void> {
   }
 }
 
+async function processEndedCanceledSubscriptions(): Promise<void> {
+  const ended = await subscriptionRepository.findEndedCanceledSubscriptions();
+
+  if (ended.length === 0) return;
+
+  logger.info(`Procesando ${ended.length} suscripción(es) canceladas ya vencidas`);
+
+  for (const subscription of ended) {
+    if (!shouldDegradeEndedCanceledSubscription(subscription)) continue;
+
+    try {
+      await downgradeBusinessToStarter(
+        subscription.business_id,
+        subscription.id,
+        "expired",
+        { currentPeriodEnd: subscription.current_period_end },
+      );
+    } catch (err) {
+      logger.error("Error procesando suscripción cancelada vencida", {
+        subscriptionId: subscription.id,
+        businessId: subscription.business_id,
+        error: err instanceof Error ? err.message : err,
+      });
+    }
+  }
+}
+
+export async function processSubscriptionExpirations(): Promise<void> {
+  await processExpiredGracePeriods();
+  await processEndedCanceledSubscriptions();
+}
+
 export function startSubscriptionExpiryJob(): void {
   logger.info(
     `Job de expiración de suscripciones iniciado (cada ${INTERVAL_MS / 1000 / 60} min)`,
   );
 
-  processExpiredGracePeriods().catch((err) =>
+  processSubscriptionExpirations().catch((err) =>
     logger.error("Error en primera ejecución del job de suscripciones", { err }),
   );
 
   setInterval(() => {
-    processExpiredGracePeriods().catch((err) =>
+    processSubscriptionExpirations().catch((err) =>
       logger.error("Error en job de suscripciones", { err }),
     );
   }, INTERVAL_MS);

@@ -16,6 +16,7 @@ import {
 } from "../../domain/errors";
 import { CreateBookingInput } from "../schemas/booking.schema";
 import { getPlanLimits } from "../../domain/plan-limits";
+import { getBusinessStatus } from "../../domain/business-status";
 import { logger } from "../../infrastructure/logger";
 
 export class BookingController {
@@ -127,6 +128,13 @@ export class BookingController {
       if (!service) throw new NotFoundError("Servicio");
       if (service.business_id !== business.id) throw new ForbiddenError();
 
+      // No exponer slots de negocios que no aceptan reservas
+      const slotStatus = getBusinessStatus(business);
+      if (slotStatus === "trial_expired" || slotStatus === "paused") {
+        res.json({ slots: [], fecha });
+        return;
+      }
+
       const slots = await this.getAvailableSlotsUseCase.execute({
         barberId,
         businessId: business.id,
@@ -177,6 +185,12 @@ export class BookingController {
 
       const barber = await this.barberRepository.findById(input.barber_id);
       if (!barber) throw new NotFoundError("Barbero");
+
+      // Bloquear reservas si el negocio está pausado o su trial venció sin suscripción activa
+      const businessStatus = getBusinessStatus(business);
+      if (businessStatus === "trial_expired" || businessStatus === "paused") {
+        throw new AppError("Este negocio no está aceptando reservas online en este momento", 403);
+      }
 
       await this.checkMonthlyLimit(business.id, business.plan, business.trial_ends_at);
 
@@ -231,7 +245,13 @@ export class BookingController {
         throw new AppError("La reserva ya está cancelada", 400);
       }
 
-      const bookingDateTime = new Date(`${booking.fecha}T${booking.hora_inicio}`);
+      // Parsear la fecha y hora del turno como hora local del servidor.
+      // Sin sufijo "Z" ni offset, V8 lo trata como hora local — correcto para fechas
+      // de negocio que ya están en la timezone del servidor (America/Montevideo).
+      // Si la app escala a múltiples zonas horarias, usar business.timezone aquí.
+      const [fyear, fmonth, fday] = booking.fecha.split("-").map(Number);
+      const [fhour, fmin] = booking.hora_inicio.split(":").map(Number);
+      const bookingDateTime = new Date(fyear, fmonth - 1, fday, fhour, fmin);
       const diffHours = (bookingDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
 
       if (diffHours < 24) {
