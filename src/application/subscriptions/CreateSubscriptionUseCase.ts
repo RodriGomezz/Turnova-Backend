@@ -25,6 +25,9 @@ export class CreateSubscriptionUseCase {
     if (!business) throw new AppError("Negocio no encontrado", 404);
 
     const latest = await this.subscriptionRepository.findByBusinessId(input.businessId);
+    if (latest && latest.status === "active") {
+      throw new ConflictError("Ya tenés una suscripción activa. Cancelala antes de cambiar de plan.");
+    }
     if (latest && (latest.status === "past_due" || latest.status === "grace_period")) {
       throw new ConflictError("Tenés un pago pendiente. Esperá que se resuelva antes de cambiar de plan.");
     }

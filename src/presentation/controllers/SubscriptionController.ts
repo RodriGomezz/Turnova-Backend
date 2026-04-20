@@ -19,7 +19,7 @@ export class SubscriptionController {
   /** GET /api/subscriptions — estado actual de la suscripción */
   get = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const activeSubscription = await this.subscriptionRepository.findActiveByBusinessId(
+      const activeSubscription = await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
         req.businessId!,
       );
       const pendingSubscription = await this.subscriptionRepository.findPendingByBusinessId(
@@ -62,7 +62,8 @@ export class SubscriptionController {
     }
   };
 
-  /** DELETE /api/subscriptions — cancelar suscripción */
+  /** POST /api/subscriptions/cancel — cancelar suscripción
+   * Usamos POST en lugar de DELETE porque algunos proxies/CDNs descartan el body en DELETE. */
   cancel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const subscription = await this.subscriptionRepository.findActiveByBusinessId(
@@ -75,9 +76,11 @@ export class SubscriptionController {
         throw new AppError("La suscripción ya está cancelada", 400);
       }
 
-      await this.paymentProvider.cancelSubscription(
-        subscription.dlocal_subscription_id,
-      );
+      // dlocal_subscription_id contiene el order_id provisional al crear el checkout.
+      // dlocal_payment_id se actualiza con el ID real de dLocal cuando llega el webhook PAID.
+      // Siempre usar el ID real para evitar un 404 al cancelar en dLocal.
+      const dlocalId = subscription.dlocal_payment_id ?? subscription.dlocal_subscription_id;
+      await this.paymentProvider.cancelSubscription(dlocalId);
 
       await this.subscriptionRepository.updateStatus(
         subscription.id,
@@ -98,7 +101,7 @@ export class SubscriptionController {
   /** GET /api/subscriptions/history — historial de pagos via dLocal */
   getHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const subscription = await this.subscriptionRepository.findActiveByBusinessId(
+      const subscription = await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
         req.businessId!,
       );
 

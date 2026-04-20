@@ -21,6 +21,6 @@ router.use(authMiddleware);
 router.get("/", subscriptionController.get);
 router.get("/history", subscriptionController.getHistory);
 router.post("/create", validate(createSubscriptionSchema), subscriptionController.create);
-router.delete("/cancel", validate(cancelSubscriptionSchema), subscriptionController.cancel);
+router.post("/cancel", validate(cancelSubscriptionSchema), subscriptionController.cancel);
 
 export default router;

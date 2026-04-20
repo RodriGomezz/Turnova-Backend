@@ -3,6 +3,7 @@ import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository
 import { IEmailService } from "../ports/IEmailService";
 import { Subscription, SubscriptionStatus } from "../../domain/entities/Subscription";
 import { logger } from "../../infrastructure/logger";
+import { PLAN_PRICES } from "../../domain/plan-prices";
 
 export interface DLocalGoWebhookPayload {
   id?: string;
@@ -86,7 +87,7 @@ export class HandleWebhookUseCase {
         to:              business?.email ?? "",
         negocioNombre:   business?.nombre ?? "",
         plan:            subscription.plan,
-        amount:          PLAN_PRICES_MAP[subscription.plan] ?? 0,
+        amount:          PLAN_PRICES[subscription.plan] ?? 0,
         currency:        "UYU",
         nextBillingDate: nextPeriodEnd.toISOString(),
       }),
@@ -205,13 +206,15 @@ export class HandleWebhookUseCase {
     }
 
     // 4. Fallback: dLocal Go no siempre envía order_id en el primer webhook.
-    //    Buscar la suscripción más reciente cuyo dlocal_subscription_id
-    //    todavía es el order_id provisional (no empieza con "DP-")
-    const recent = await this.subscriptionRepository.findMostRecentPending();
+    //    Si podemos extraer un businessId del order_id, lo usamos para acotar
+    //    la búsqueda y evitar asignar el webhook al checkout de otro negocio.
+    const businessIdFromOrder = orderId ? orderId.split("_")[0] : undefined;
+    const recent = await this.subscriptionRepository.findMostRecentPending(businessIdFromOrder);
     if (recent) {
       logger.info("Suscripción encontrada por fallback", {
         subscriptionId: recent.id,
         paymentId,
+        businessIdFromOrder,
       });
       return recent;
     }
@@ -270,8 +273,3 @@ export class HandleWebhookUseCase {
   }
 }
 
-const PLAN_PRICES_MAP: Record<string, number> = {
-  starter: 590,
-  pro:      1390,
-  business: 2290,
-};
