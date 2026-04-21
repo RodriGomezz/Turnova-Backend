@@ -1,7 +1,3 @@
 logs/
 node_modules/
 .env
-
-/dist/
-/build/
-/docs/
