@@ -103,7 +103,7 @@ async function getPublicBusinessData(slug: string) {
 
 router.get("/public/:slug", async (req, res, next) => {
   try {
-    const slug = req.params["slug"];
+    const slug = String(req.params["slug"] ?? "").trim().toLowerCase();
     const cached = getCached(slug);
     if (cached) {
       res.json(cached);
@@ -128,7 +128,7 @@ router.get("/public/:slug", async (req, res, next) => {
 
 router.get("/public/domain/:domain", async (req, res, next) => {
   try {
-    const domain = req.params["domain"];
+    const domain = String(req.params["domain"] ?? "").trim().toLowerCase();
 
     const { data: biz, error } = await supabase
       .from("businesses")
