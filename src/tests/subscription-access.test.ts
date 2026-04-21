@@ -33,9 +33,15 @@ test("hasActiveTrial only returns true for a future date", () => {
   assert.equal(hasActiveTrial("2099-01-01T00:00:00.000Z"), true);
 });
 
+<<<<<<< HEAD
 test("custom domains require a paid plan and are blocked during trial", () => {
   assert.equal(canUseCustomDomain("starter", "2099-01-01T00:00:00.000Z"), false);
   assert.equal(canUseCustomDomain("starter", null), true);
+=======
+test("custom domains require a paid Pro or Business plan", () => {
+  assert.equal(canUseCustomDomain("starter", "2099-01-01T00:00:00.000Z"), false);
+  assert.equal(canUseCustomDomain("starter", null), false);
+>>>>>>> 638fbe276f74a3036038abb81625b51f469b6daa
   assert.equal(canUseCustomDomain("pro", null), true);
   assert.equal(canUseCustomDomain("business", null), true);
 });
