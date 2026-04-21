@@ -7,12 +7,19 @@ import { supabase } from "../../infrastructure/database/supabase.client";
 import { getCached, setCache } from "../../infrastructure/cache/public.cache";
 import { getBusinessStatus } from "../../domain/business-status";
 import { Business } from "../../domain/entities/Business";
+import { canUseCustomDomain } from "../../domain/subscription-access";
 import { bookingController as controller } from '../../container';
 
 const router = Router();
 
 // ── Panel del dueño (protegidas) ──────────────────────────────
 router.get("/panel", authMiddleware, controller.listByDate);
+router.post(
+  "/panel",
+  authMiddleware,
+  validate(createBookingSchema),
+  controller.createPanel,
+);
 router.patch("/panel/:id/estado", authMiddleware, controller.updateEstado);
 router.get("/panel/month", authMiddleware, controller.getMonthSummary);
 // Junto a las otras rutas del panel
@@ -125,12 +132,16 @@ router.get("/public/domain/:domain", async (req, res, next) => {
 
     const { data: biz, error } = await supabase
       .from("businesses")
-      .select("slug")
+      .select("slug, plan, trial_ends_at")
       .eq("custom_domain", domain)
       .eq("domain_verified", true)
       .single();
 
-    if (error || !biz) {
+    if (
+      error ||
+      !biz ||
+      !canUseCustomDomain(biz.plan, biz.trial_ends_at)
+    ) {
       res.status(404).json({ error: "Dominio no encontrado" });
       return;
     }

@@ -1,4 +1,5 @@
 export type SubscriptionStatus =
+  | "pending"      // checkout iniciado, pago todavía no confirmado
   | "active"       // pago al día
   | "past_due"     // pago falló, dLocal reintentando
   | "grace_period" // reintentos agotados, 5 días de gracia antes de degradar
@@ -16,8 +17,8 @@ export interface Subscription {
   dlocal_subscription_id: string;
   /** ID del último pago procesado */
   dlocal_payment_id: string | null;
-  current_period_start: string;
-  current_period_end: string;
+  current_period_start: string | null;
+  current_period_end: string | null;
   /** current_period_end + GRACE_PERIOD_DAYS. Null si status no es grace_period */
   grace_period_ends_at: string | null;
   canceled_at: string | null;

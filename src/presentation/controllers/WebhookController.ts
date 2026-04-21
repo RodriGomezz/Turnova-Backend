@@ -15,7 +15,8 @@ export class WebhookController {
   /**
    * POST /api/subscriptions/dlocal
    *
-   * dLocal Go envía: { payment_id: "xxx", order_id: "yyy", status: "PAID" }
+   * dLocal envía el objeto pago completo. También toleramos el formato reducido
+   * { payment_id, order_id, status } para compatibilidad.
    *
    * La firma usa HMAC-SHA256 sobre el body raw con el API Secret como clave.
    * Header: X-Signature
@@ -43,8 +44,8 @@ export class WebhookController {
         throw new AppError("Payload de webhook inválido", 400);
       }
 
-      if (!payload.payment_id) {
-        throw new AppError("Webhook sin payment_id", 400);
+      if (!payload.payment_id && !payload.id) {
+        throw new AppError("Webhook sin id de pago", 400);
       }
 
       // Responder 200 de inmediato — dLocal reintenta si no recibe respuesta rápida
@@ -53,7 +54,7 @@ export class WebhookController {
       // Procesar de forma asíncrona sin bloquear la respuesta
       this.handleWebhookUseCase.execute(payload).catch((err) =>
         logger.error("Error procesando webhook dLocal Go", {
-          paymentId: payload.payment_id,
+          paymentId: payload.payment_id ?? payload.id,
           err,
         }),
       );

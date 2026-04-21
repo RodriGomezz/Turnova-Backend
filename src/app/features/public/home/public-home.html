@@ -1,0 +1,217 @@
+<div class="public-home"
+  [style.--bg]="business()?.color_fondo ?? '#0A0A0A'"
+  [style.--surface]="colorSuperficie()"
+  [style.--accent]="business()?.color_acento ?? '#C9A84C'"
+  [style.--on-bg]="colorTexto()"
+  [style.--on-bg-soft]="colorTextoSuave()"
+  [style.--on-accent]="colorSobreAccento()"
+  [style.--dark-section]="colorSeccionDark()"
+  [style.--accent-on-surface]="colorAcentoSobreSuperficie()"
+  [style.--on-accent-on-surface]="colorOnAcentoSobreSuperficie()"
+  [attr.data-tipografia]="business()?.tipografia ?? 'clasica'"
+  [attr.data-estilo-cards]="business()?.estilo_cards ?? 'destacado'">
+
+  @if (loading()) {
+    <div class="loading"><span class="spinner"></span></div>
+  } @else if (notFound()) {
+    <div class="not-found">
+      <p class="not-found__code">404</p>
+      <h1 class="not-found__title">Negocio no encontrado</h1>
+      <p class="not-found__sub">El link que ingresaste no existe o fue desactivado.</p>
+      <a routerLink="/" class="not-found__link">Volver al inicio</a>
+    </div>
+  } @else if (business()) {
+
+    <header class="pub-header">
+      <div class="pub-header__inner">
+        <div class="pub-header__brand">
+          <div class="pub-header__avatar" aria-hidden="true">
+            @if (business()?.logo_url) {
+              <img [src]="business()!.logo_url!" [alt]="business()!.nombre" class="pub-header__logo-img" />
+            } @else {
+              {{ business()?.nombre?.charAt(0)?.toUpperCase() }}
+            }
+          </div>
+          <span class="pub-header__name">{{ business()!.nombre }}</span>
+        </div>
+        @if (isDisponible()) {
+          <a [routerLink]="reservarLink()"
+            class="btn-reservar"
+            [attr.aria-label]="'Reservar ' + (business()?.termino_reserva ?? 'turno') + ' en ' + business()!.nombre">
+            Reservar {{ business()?.termino_reserva ?? 'turno' }} →
+          </a>
+        }
+      </div>
+    </header>
+
+    @if (business()?.status === 'trial_expired' || business()?.status === 'paused') {
+      <div class="negocio-pausado">
+        <p class="negocio-pausado__eyebrow">⚠ Turnos no disponibles</p>
+        <p class="negocio-pausado__title">
+          @if (business()?.status === 'trial_expired') { Este negocio pausó sus turnos online }
+          @else { Este negocio no está disponible por el momento }
+        </p>
+        <p class="negocio-pausado__sub">
+          @if (business()?.whatsapp) { Podés contactarlos directamente por WhatsApp. }
+          @else { Contactanos para más información. }
+        </p>
+        @if (business()?.whatsapp) {
+          <a [href]="'https://wa.me/' + business()!.whatsapp" target="_blank"
+            rel="noopener noreferrer" class="negocio-pausado__btn">
+            Contactar por WhatsApp →
+          </a>
+        }
+      </div>
+    }
+
+    <section class="hero"
+      [style.background-image]="heroImageUrl() ? 'url(' + heroImageUrl() + ')' : null">
+      <div class="hero__inner">
+        <div class="hero__logo" aria-hidden="true">
+          @if (business()?.logo_url) {
+            <img [src]="business()!.logo_url!" alt="" class="hero__logo-img" />
+          } @else {
+            {{ business()?.nombre?.charAt(0)?.toUpperCase() }}
+          }
+        </div>
+        <h1 class="hero__title">{{ business()!.nombre }}</h1>
+        @if (business()!.frase_bienvenida) {
+          <p class="hero__frase">{{ business()!.frase_bienvenida }}</p>
+        }
+        <div class="hero__meta">
+          @if (business()!.direccion) {
+            <span class="hero__meta-item">📍 {{ business()!.direccion }}</span>
+          }
+        </div>
+        <div class="hero__actions">
+          @if (isDisponible()) {
+            <a [routerLink]="reservarLink()" class="hero__btn-primary">
+              Reservar {{ business()?.termino_reserva ?? 'turno' }} →
+            </a>
+          }
+          @if (business()!.whatsapp) {
+            <a [href]="'https://wa.me/' + business()!.whatsapp" target="_blank"
+              rel="noopener noreferrer" class="hero__btn-wa">
+              WhatsApp →
+            </a>
+          }
+        </div>
+      </div>
+    </section>
+
+    @if (services().length > 0) {
+      <section class="section" id="servicios">
+        <div class="section__inner">
+          <p class="section__eyebrow" aria-hidden="true">QUÉ HACEMOS</p>
+          <h2 class="section__title">
+            Nuestros {{ business()?.termino_servicio?.toLowerCase() ?? 'servicios' }}s
+          </h2>
+          <div class="services-grid">
+            @for (service of services(); track service.id) {
+              <div class="service-card">
+                <div class="service-card__body">
+                  <p class="service-card__nombre">{{ service.nombre }}</p>
+                  @if (service.descripcion) {
+                    <p class="service-card__desc">{{ service.descripcion }}</p>
+                  }
+                  @if (service.incluye) {
+                    <p class="service-card__incluye">✓ {{ service.incluye }}</p>
+                  }
+                  <div class="service-card__meta">
+                    <span class="service-card__duracion">{{ service.duracion_minutos }} min</span>
+                    <span class="service-card__precio">{{ formatPrecio(service) }}</span>
+                  </div>
+                </div>
+                <a [routerLink]="reservarLink()"
+                  [queryParams]="{ service_id: service.id }"
+                  class="service-card__cta"
+                  [attr.aria-label]="'Reservar ' + service.nombre">
+                  Reservar este {{ business()?.termino_servicio?.toLowerCase() ?? 'servicio' }} →
+                </a>
+              </div>
+            }
+          </div>
+        </div>
+      </section>
+    }
+
+    @if (barbers().length > 0) {
+      <section class="section section--dark">
+        <div class="section__inner">
+          <p class="section__eyebrow" aria-hidden="true">El equipo</p>
+          <h2 class="section__title section__title--light">
+            Nuestros {{ business()?.termino_profesional_plural?.toLowerCase() ?? 'profesionales' }}
+          </h2>
+          <div class="barbers-grid">
+            @for (barber of barbers(); track barber.id) {
+              <div class="barber-card">
+                @if (barber.foto_url) {
+                  <img [src]="barber.foto_url" [alt]="barber.nombre" class="barber-card__photo" />
+                } @else {
+                  <div class="barber-card__placeholder">
+                    {{ barber.nombre.charAt(0).toUpperCase() }}
+                  </div>
+                }
+                <p class="barber-card__nombre">{{ barber.nombre }}</p>
+                @if (barber.descripcion) {
+                  <p class="barber-card__desc">{{ barber.descripcion }}</p>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      </section>
+    }
+
+    <section class="cta-final">
+      <div class="cta-final__inner">
+        <h2 class="cta-final__title">¿Agendás hoy?</h2>
+        <p class="cta-final__sub">Reservá online en menos de un minuto. Sin llamadas, sin esperas.</p>
+        <a [routerLink]="reservarLink()" class="hero__btn-primary">
+          Reservar {{ business()?.termino_reserva ?? 'turno' }} →
+        </a>
+      </div>
+    </section>
+
+    <footer class="pub-footer">
+      <div class="pub-footer__inner">
+        <div class="pub-footer__col">
+          <p class="pub-footer__nombre">{{ business()!.nombre }}</p>
+          @if (business()!.direccion) {
+            <p class="pub-footer__detail">📍 {{ business()!.direccion }}</p>
+          }
+          @if (business()!.whatsapp) {
+            <a [href]="'https://wa.me/' + business()!.whatsapp" target="_blank"
+              rel="noopener noreferrer" class="hero__btn-wa"
+              [attr.aria-label]="'Contactar ' + business()!.nombre + ' por WhatsApp'">
+              WhatsApp →
+            </a>
+          }
+          @if (business()!.email) {
+            <p class="pub-footer__detail">✉ {{ business()!.email }}</p>
+          }
+          <div class="pub-footer__redes">
+            @if (business()!.instagram) {
+              <a [href]="'https://instagram.com/' + business()!.instagram"
+                target="_blank" rel="noopener noreferrer" class="pub-footer__red"
+                [attr.aria-label]="business()!.nombre + ' en Instagram'">
+                Instagram
+              </a>
+            }
+            @if (business()!.facebook) {
+              <a [href]="'https://facebook.com/' + business()!.facebook"
+                target="_blank" rel="noopener noreferrer" class="pub-footer__red"
+                [attr.aria-label]="business()!.nombre + ' en Facebook'">
+                Facebook
+              </a>
+            }
+          </div>
+        </div>
+        <div class="pub-footer__powered">
+          Powered by <a href="/" target="_blank">turnio</a>
+        </div>
+      </div>
+    </footer>
+
+  }
+</div>

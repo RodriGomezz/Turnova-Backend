@@ -1,0 +1,20 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const AuthController_1 = require("../controllers/AuthController");
+const validate_middleware_1 = require("../middlewares/validate.middleware");
+const auth_middleware_1 = require("../middlewares/auth.middleware");
+const rateLimiter_middleware_1 = require("../middlewares/rateLimiter.middleware");
+const auth_schema_1 = require("../schemas/auth.schema");
+const router = (0, express_1.Router)();
+const controller = new AuthController_1.AuthController();
+router.post("/register", rateLimiter_middleware_1.authLimiter, (0, validate_middleware_1.validate)(auth_schema_1.registerSchema), controller.register);
+router.post("/login", rateLimiter_middleware_1.authLimiter, (0, validate_middleware_1.validate)(auth_schema_1.loginSchema), controller.login);
+router.post("/refresh", rateLimiter_middleware_1.authLimiter, controller.refresh);
+router.get("/me", auth_middleware_1.authMiddleware, controller.me);
+router.put("/profile", auth_middleware_1.authMiddleware, controller.updateProfile);
+router.post("/request-reset", rateLimiter_middleware_1.authLimiter, controller.requestPasswordReset);
+router.post("/reset-password", controller.resetPassword);
+router.post("/branch", auth_middleware_1.authMiddleware, controller.createBranch);
+exports.default = router;
+//# sourceMappingURL=auth.routes.js.map

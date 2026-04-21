@@ -1,0 +1,180 @@
+<div class="barbers">
+
+  <div class="page-header">
+    <div>
+      <p class="page-eyebrow">Panel</p>
+      <h1 class="page-title">{{ terms.profesionalPlural() }}</h1>
+    </div>
+    <button class="btn-primary" (click)="openCreate()">
+      + Agregar {{ terms.profesional() | lowercase }}
+    </button>
+  </div>
+
+  @if (excedeLimit()) {
+    <div class="plan-warning">
+      <div class="plan-warning__icon">⚠</div>
+      <div class="plan-warning__content">
+        <p class="plan-warning__title">
+          Tenés {{ totalBarberos() }} {{ terms.profesionalPlural() | lowercase }} activos
+          pero tu plan permite hasta {{ maxBarberos() }}.
+        </p>
+        <p class="plan-warning__sub">
+          Desactivá los que no uses o
+          <a routerLink="/panel/configuracion" [queryParams]="{tab: 'planes'}">actualizá tu plan</a>
+          para mantenerlos todos.
+        </p>
+      </div>
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="loading">
+      <span class="spinner"></span>
+      <span>Cargando...</span>
+    </div>
+  } @else if (barbers().length === 0) {
+    <div class="empty">
+      <span class="empty__icon">✦</span>
+      <p class="empty__title">Sin {{ terms.profesionalPlural() | lowercase }} todavía</p>
+      <p class="empty__sub">
+        Agregá tu primer {{ terms.profesional() | lowercase }} para empezar a recibir turnos.
+      </p>
+      <button class="btn-primary" (click)="openCreate()">
+        Agregar {{ terms.profesional() | lowercase }}
+      </button>
+    </div>
+  } @else {
+    <div class="barbers-grid">
+      @for (barber of barbers(); track barber.id) {
+        <div class="barber-card">
+
+          <div class="barber-card__photo-wrap">
+            @if (barber.foto_url) {
+              <img
+                [src]="barber.foto_url"
+                [alt]="barber.nombre"
+                class="barber-card__photo"
+              />
+            } @else {
+              <div class="barber-card__photo-placeholder">
+                {{ barber.nombre.charAt(0).toUpperCase() }}
+              </div>
+            }
+
+            <label
+              class="barber-card__photo-upload"
+              [class.uploading]="uploadingId() === barber.id"
+              [attr.aria-label]="'Cambiar foto de ' + barber.nombre"
+            >
+              @if (uploadingId() === barber.id) {
+                <span class="spinner spinner--small"></span>
+              } @else {
+                <span>📷</span>
+              }
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style="display:none"
+                (change)="onPhotoSelected($event, barber.id)"
+              />
+            </label>
+          </div>
+
+          <div class="barber-card__info">
+            <div class="barber-card__header">
+              <div>
+                <p class="barber-card__nombre">{{ barber.nombre }}</p>
+                @if (barber.descripcion) {
+                  <p class="barber-card__desc">{{ barber.descripcion }}</p>
+                }
+              </div>
+              <div class="barber-card__orden">
+                <span class="orden-label">Pos.</span>
+                <span class="orden-num">{{ barber.orden + 1 }}</span>
+              </div>
+            </div>
+
+            <div class="barber-card__actions">
+              @if (confirmingDeleteId() === barber.id) {
+                <span class="confirm-text">¿Desactivar?</span>
+                <button class="btn-delete" (click)="delete(barber.id)">Sí</button>
+                <button class="btn-ghost" (click)="cancelDelete()">No</button>
+              } @else {
+                <button class="btn-edit" (click)="openEdit(barber)">Editar</button>
+                <button class="btn-delete" (click)="confirmDelete(barber.id)">Desactivar</button>
+              }
+            </div>
+          </div>
+
+        </div>
+      }
+    </div>
+  }
+
+  @if (showForm()) {
+    <div class="modal-backdrop" (click)="closeForm()">
+      <div class="modal" (click)="$event.stopPropagation()">
+
+        <div class="modal__header">
+          <h2 class="modal__title">
+            {{ editingId() ? 'Editar ' + terms.profesional() : 'Nuevo ' + terms.profesional() }}
+          </h2>
+          <button class="modal__close" (click)="closeForm()" aria-label="Cerrar">✕</button>
+        </div>
+
+        <div class="form">
+          <div class="field">
+            <label class="field__label" for="barber-nombre">Nombre *</label>
+            <input
+              id="barber-nombre"
+              class="field__input"
+              type="text"
+              placeholder="Ej: Kevin"
+              [(ngModel)]="form.nombre"
+              name="nombre"
+            />
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="barber-descripcion">Descripción</label>
+            <textarea
+              id="barber-descripcion"
+              class="field__input field__textarea"
+              placeholder="Especialista en..."
+              [(ngModel)]="form.descripcion"
+              name="descripcion"
+              rows="3"
+            ></textarea>
+          </div>
+
+          <div class="field">
+            <label class="field__label" for="barber-orden">Orden de aparición</label>
+            <input
+              id="barber-orden"
+              class="field__input"
+              type="number"
+              min="0"
+              [(ngModel)]="form.orden"
+              name="orden"
+            />
+            <span class="field__hint">El orden en que aparece en la página pública.</span>
+          </div>
+
+          <div class="modal__actions">
+            <button class="btn-ghost" (click)="closeForm()">Cancelar</button>
+            <button class="btn-primary" (click)="save()" [disabled]="saving()">
+              @if (saving()) {
+                <span class="spinner spinner--small spinner--light"></span>
+                Guardando...
+              } @else {
+                {{ editingId() ? 'Guardar cambios' : 'Crear ' + terms.profesional() }}
+              }
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  }
+
+</div>

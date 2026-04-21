@@ -1,0 +1,8 @@
+export interface IRepository<T> {
+    findById(id: string): Promise<T | null>;
+    findAll(filters?: Partial<T>): Promise<T[]>;
+    create(data: Partial<T>): Promise<T>;
+    update(id: string, data: Partial<T>): Promise<T>;
+    delete(id: string): Promise<void>;
+}
+//# sourceMappingURL=IRepository.d.ts.map

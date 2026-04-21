@@ -19,10 +19,18 @@ export class SubscriptionController {
   /** GET /api/subscriptions — estado actual de la suscripción */
   get = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const subscription = await this.subscriptionRepository.findByBusinessId(
+      const activeSubscription = await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
         req.businessId!,
       );
-      res.json({ subscription });
+      const pendingSubscription = await this.subscriptionRepository.findPendingByBusinessId(
+        req.businessId!,
+      );
+
+      res.json({
+        subscription: activeSubscription,
+        activeSubscription,
+        pendingSubscription,
+      });
     } catch (error) {
       next(error);
     }
@@ -31,7 +39,7 @@ export class SubscriptionController {
   /** POST /api/subscriptions — iniciar checkout */
   create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { plan } = req.body as CreateSubscriptionInput;
+      const { plan, firstName, lastName, email } = req.body as CreateSubscriptionInput;
 
       const user = await this.userRepository.findById(req.userId!);
       if (!user) throw new NotFoundError("Usuario");
@@ -42,8 +50,9 @@ export class SubscriptionController {
       const { checkoutUrl } = await this.createSubscriptionUseCase.execute({
         businessId: req.businessId!,
         plan,
-        email: user.email,
-        nombre: business.nombre,
+        email,
+        firstName,
+        lastName,
         frontendUrl: process.env.FRONTEND_URL ?? "http://localhost:4200",
       });
 
@@ -53,10 +62,11 @@ export class SubscriptionController {
     }
   };
 
-  /** DELETE /api/subscriptions — cancelar suscripción */
+  /** POST /api/subscriptions/cancel — cancelar suscripción
+   * Usamos POST en lugar de DELETE porque algunos proxies/CDNs descartan el body en DELETE. */
   cancel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const subscription = await this.subscriptionRepository.findByBusinessId(
+      const subscription = await this.subscriptionRepository.findActiveByBusinessId(
         req.businessId!,
       );
 
@@ -66,9 +76,11 @@ export class SubscriptionController {
         throw new AppError("La suscripción ya está cancelada", 400);
       }
 
-      await this.paymentProvider.cancelSubscription(
-        subscription.dlocal_subscription_id,
-      );
+      // dlocal_subscription_id contiene el order_id provisional al crear el checkout.
+      // dlocal_payment_id se actualiza con el ID real de dLocal cuando llega el webhook PAID.
+      // Siempre usar el ID real para evitar un 404 al cancelar en dLocal.
+      const dlocalId = subscription.dlocal_payment_id ?? subscription.dlocal_subscription_id;
+      await this.paymentProvider.cancelSubscription(dlocalId);
 
       await this.subscriptionRepository.updateStatus(
         subscription.id,
@@ -79,7 +91,7 @@ export class SubscriptionController {
       // El plan se mantiene hasta que venza current_period_end — el cron lo degrada
       res.json({
         message: "Suscripción cancelada. Tu plan se mantiene activo hasta el fin del período.",
-        currentPeriodEnd: subscription.current_period_end,
+        currentPeriodEnd: subscription.current_period_end ?? undefined,
       });
     } catch (error) {
       next(error);
@@ -89,7 +101,7 @@ export class SubscriptionController {
   /** GET /api/subscriptions/history — historial de pagos via dLocal */
   getHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const subscription = await this.subscriptionRepository.findByBusinessId(
+      const subscription = await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
         req.businessId!,
       );
 

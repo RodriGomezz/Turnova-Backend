@@ -1,0 +1,40 @@
+export type BusinessPlan = "starter" | "pro" | "business";
+export type Tipografia = "clasica" | "moderna" | "minimalista" | "bold";
+export type EstiloCards = "destacado" | "minimalista" | "oscuro";
+export type BusinessStatus = "active" | "trial" | "trial_expired" | "paused";
+export interface Business {
+    id: string;
+    slug: string;
+    nombre: string;
+    logo_url: string | null;
+    color_fondo: string;
+    color_acento: string;
+    color_superficie: string;
+    email: string | null;
+    whatsapp: string | null;
+    direccion: string | null;
+    timezone: string;
+    buffer_minutos: number;
+    auto_confirmar: boolean;
+    activo: boolean;
+    plan: BusinessPlan;
+    trial_ends_at: string | null;
+    created_at: string;
+    frase_bienvenida: string | null;
+    hero_imagen_url: string | null;
+    instagram: string | null;
+    facebook: string | null;
+    tipografia: Tipografia;
+    estilo_cards: EstiloCards;
+    tipo_negocio: string;
+    termino_profesional: string;
+    termino_profesional_plural: string;
+    termino_servicio: string;
+    termino_reserva: string;
+    custom_domain: string | null;
+    domain_verified: boolean;
+    domain_verified_at: string | null;
+    domain_added_at: string | null;
+    onboarding_completed: boolean;
+}
+//# sourceMappingURL=Business.d.ts.map

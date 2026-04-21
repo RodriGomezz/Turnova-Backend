@@ -1,0 +1,1 @@
+{"version":3,"file":"business-status.d.ts","sourceRoot":"","sources":["../../src/domain/business-status.ts"],"names":[],"mappings":"AAAA,MAAM,MAAM,cAAc,GAAG,QAAQ,GAAG,OAAO,GAAG,eAAe,GAAG,QAAQ,CAAC;AAE7E,wBAAgB,iBAAiB,CAAC,QAAQ,EAAE;IAC1C,IAAI,EAAE,MAAM,CAAC;IACb,aAAa,EAAE,MAAM,GAAG,IAAI,CAAC;IAC7B,MAAM,EAAE,OAAO,CAAC;CACjB,GAAG,cAAc,CAgBjB"}

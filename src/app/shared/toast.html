@@ -1,0 +1,14 @@
+<div class="toast-container">
+  @for (toast of toastService.toasts(); track trackById($index, toast)) {
+    <div class="toast toast--{{ toast.type }}">
+      <span class="toast__icon">
+        @if (toast.type === 'success') { ✓ }
+        @if (toast.type === 'error')   { ✕ }
+        @if (toast.type === 'info')    { ℹ }
+        @if (toast.type === 'warning') { ⚠ }
+      </span>
+      <span class="toast__message">{{ toast.message }}</span>
+      <button class="toast__close" (click)="toastService.remove(toast.id)">✕</button>
+    </div>
+  }
+</div>

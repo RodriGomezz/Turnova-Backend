@@ -1,0 +1,65 @@
+<div class="confirm"
+  [style.--color-fondo]="business()?.color_fondo ?? '#0A0A0A'"
+  [style.--color-acento]="business()?.color_acento ?? '#C9A84C'"
+  [attr.data-tipografia]="business()?.tipografia ?? 'clasica'"
+  [attr.data-estilo-cards]="business()?.estilo_cards ?? 'destacado'">
+
+  <nav class="confirm-nav">
+    <div class="confirm-nav__inner">
+      <a [routerLink]="homeLink()" class="confirm-nav__logo">turnio</a>
+    </div>
+  </nav>
+
+  <div class="confirm-body">
+
+    <div class="check-wrap">
+      <div class="check-circle">✓</div>
+    </div>
+
+    <p class="confirm__eyebrow">
+      @if (estado() === 'confirmada') { Turno confirmado } @else { Turno recibido }
+    </p>
+    <h1 class="confirm__title">
+      @if (estado() === 'confirmada') {
+        ¡Tu {{ business()?.termino_reserva?.toLowerCase() ?? 'turno' }} está reservado!
+      } @else {
+        ¡Turno recibido!
+      }
+    </h1>
+    <p class="confirm__sub">
+      @if (estado() === 'confirmada') {
+        Recibirás un email de confirmación.
+      } @else {
+        Tu turno está pendiente de confirmación. Te avisaremos por email cuando sea confirmado.
+      }
+    </p>
+
+    <div class="confirm-card">
+      <div class="confirm-card__row">
+        <span class="confirm-card__label">Servicio</span>
+        <span class="confirm-card__value">{{ servicio() }}</span>
+      </div>
+      <div class="confirm-card__row">
+        <span class="confirm-card__label">{{ business()?.termino_profesional ?? 'Profesional' }}</span>
+        <span class="confirm-card__value">{{ barbero() }}</span>
+      </div>
+      <div class="confirm-card__row">
+        <span class="confirm-card__label">Fecha</span>
+        <span class="confirm-card__value">{{ formatFecha(fecha()) | titlecase }}</span>
+      </div>
+      <div class="confirm-card__row confirm-card__row--highlight">
+        <span class="confirm-card__label">Hora</span>
+        <span class="confirm-card__value confirm-card__hora">{{ hora() }}</span>
+      </div>
+    </div>
+
+    <div class="confirm-actions">
+      <a [routerLink]="homeLink()" class="btn-secondary">Volver al inicio</a>
+    </div>
+
+    <p class="confirm__powered">
+      Turno gestionado por <a href="/" target="_blank">turnio</a>
+    </p>
+
+  </div>
+</div>
