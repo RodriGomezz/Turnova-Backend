@@ -50,13 +50,6 @@ function getBaseUrl(): string {
     : DLOCAL_GO_PROD_API;
 }
 
-// function buildHeaders(): Record<string, string> {
-//   return {
-//     "X-Api-Key":    process.env.DLOCAL_API_KEY    ?? "",
-//     "X-Api-Secret": process.env.DLOCAL_API_SECRET ?? "",
-//     "Content-Type": "application/json",
-//   };
-// }
 function buildHeaders(): Record<string, string> {
   const apiKey = process.env.DLOCAL_API_KEY ?? "";
   const apiSecret = process.env.DLOCAL_API_SECRET ?? "";
@@ -104,7 +97,10 @@ export const dlocalClient: IPaymentProvider = {
       notification_url: `${process.env.API_URL ?? "http://localhost:3000"}/api/subscriptions/dlocal`,
       order_id:         orderId,
       description:      `Turnio Plan ${input.plan} — suscripción mensual`,
-      payer: { name: input.nombre, email: input.email },
+      payer: {
+        name: `${input.firstName} ${input.lastName}`.trim(),
+        email: input.email,
+      },
     };
 
     logger.info("dLocal Go createPayment", {
@@ -121,14 +117,10 @@ export const dlocalClient: IPaymentProvider = {
       body:    JSON.stringify(payload),
     });
 
-    console.log(res, 'res');
-    
     const data = await parseResponse<DLocalGoPaymentResponse>(
       res, "createPayment", { businessId: input.businessId, orderId },
     );
 
-    console.log(data, 'data');
-    
 
     if (!data.redirect_url) {
       throw new Error("dLocal Go no devolvió una redirect_url");

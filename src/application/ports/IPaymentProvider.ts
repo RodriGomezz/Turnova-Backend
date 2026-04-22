@@ -7,8 +7,10 @@ export interface CreateSubscriptionInput {
   plan: SubscriptionPlan;
   /** Email del titular de la suscripción */
   email: string;
-  /** Nombre que aparece en el cobro */
-  nombre: string;
+  /** Nombre del titular que aparece en el cobro */
+  firstName: string;
+  /** Apellido del titular que aparece en el cobro */
+  lastName: string;
   /** URL a la que redirige dLocal después del pago */
   successUrl: string;
   cancelUrl: string;

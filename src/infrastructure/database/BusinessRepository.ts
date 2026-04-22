@@ -20,10 +20,11 @@ export class BusinessRepository implements IBusinessRepository {
 
   /** Sin filtro `activo` — la capa de aplicación decide qué hacer con negocios pausados */
   async findBySlug(slug: string): Promise<Business | null> {
+    const normalizedSlug = slug.trim().toLowerCase();
     const { data, error } = await supabase
       .from(this.table)
       .select("*")
-      .eq("slug", slug)
+      .eq("slug", normalizedSlug)
       .single();
 
     if (error?.code === "PGRST116") return null;
@@ -32,11 +33,25 @@ export class BusinessRepository implements IBusinessRepository {
   }
 
   async findByCustomDomain(domain: string): Promise<Business | null> {
+    const normalizedDomain = domain.trim().toLowerCase();
     const { data, error } = await supabase
       .from(this.table)
       .select("*")
-      .eq("custom_domain", domain)
+      .eq("custom_domain", normalizedDomain)
       .eq("domain_verified", true)
+      .single();
+
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Business;
+  }
+
+  async findByAnyCustomDomain(domain: string): Promise<Business | null> {
+    const normalizedDomain = domain.trim().toLowerCase();
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("*")
+      .eq("custom_domain", normalizedDomain)
       .single();
 
     if (error?.code === "PGRST116") return null;
