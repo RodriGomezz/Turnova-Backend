@@ -1,4 +1,0 @@
-{
-  "buildCommand": "node replace-env.js && npx ng build",
-  "outputDirectory": "dist/frontend/browser"
-}
