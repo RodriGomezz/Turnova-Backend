@@ -1,4 +1,4 @@
-import { logger } from "../../../dist/infrastructure/logger";
+import { logger } from "../logger";
 
 const VERCEL_API = "https://api.vercel.com";
 const PROJECT_ID = process.env.VERCEL_PROJECT_ID!;

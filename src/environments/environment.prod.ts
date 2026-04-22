@@ -1,8 +1,6 @@
 export const environment = {
   production: true,
   apiUrl: '',
-  supabaseUrl: '',
-  supabaseAnonKey: '',
   baseDomain: '',
   prelaunchLaunchDate: '2026-06-30T00:00:00-03:00',
   founderSpots: 100,

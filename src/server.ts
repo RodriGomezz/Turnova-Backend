@@ -6,7 +6,7 @@ import { startSubscriptionExpiryJob } from "./infrastructure/jobs/subscription-e
 
 const REQUIRED_ENV_VARS = [
   "SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_SECRET_KEY",
   "JWT_SECRET",
 ];
 

@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import { supabase } from "../../infrastructure/database/supabase.client";
+import {
+  createSupabaseAuthClient,
+  supabase,
+} from "../../infrastructure/database/supabase.client";
 import { CreateBusinessUseCase } from "../../application/businesses/CreateBusinessUseCase";
 import { BusinessRepository } from "../../infrastructure/database/BusinessRepository";
 import { UserRepository } from "../../infrastructure/database/UserRepository";
@@ -101,8 +104,9 @@ export class AuthController {
   ): Promise<void> => {
     try {
       const { email, password } = req.body as LoginInput;
+      const authClient = createSupabaseAuthClient();
 
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await authClient.auth.signInWithPassword({
         email,
         password,
       });
@@ -149,8 +153,9 @@ export class AuthController {
     try {
       const { refresh_token } = req.body;
       if (!refresh_token) throw new AppError("Refresh token requerido", 400);
+      const authClient = createSupabaseAuthClient();
 
-      const { data, error } = await supabase.auth.refreshSession({
+      const { data, error } = await authClient.auth.refreshSession({
         refresh_token,
       });
       if (error || !data.session) throw new AppError("Sesión inválida", 401);
@@ -212,7 +217,8 @@ export class AuthController {
       if (!email) throw new AppError("El email es requerido", 400);
 
       // Supabase envía el email automáticamente
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const authClient = createSupabaseAuthClient();
+      const { error } = await authClient.auth.resetPasswordForEmail(email, {
         redirectTo: `${process.env.FRONTEND_URL}/reset-password`,
       });
 
@@ -239,6 +245,7 @@ export class AuthController {
         access_token: string;
         password: string;
       };
+      const authClient = createSupabaseAuthClient();
 
       if (!access_token) throw new AppError("Token requerido", 400);
       if (!password || password.length < 8) {
@@ -252,7 +259,7 @@ export class AuthController {
       const {
         data: { user },
         error: verifyError,
-      } = await supabase.auth.getUser(access_token);
+      } = await authClient.auth.getUser(access_token);
       if (verifyError || !user)
         throw new AppError("Token inválido o expirado", 401);
 

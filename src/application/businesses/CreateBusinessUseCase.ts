@@ -65,21 +65,26 @@ export class CreateBusinessUseCase {
       custom_domain: null,
     });
 
-    if (!input.existingUser) {
-      await this.userRepository.create({
-        id: input.userId,
-        business_id: business.id,
-        email: input.email,
-        nombre: input.nombre_usuario ?? null,
-        rol: "owner",
-      });
-    } else {
-      await this.userRepository.update(input.userId, {
-        business_id: business.id,
-      });
-    }
+    try {
+      if (!input.existingUser) {
+        await this.userRepository.create({
+          id: input.userId,
+          business_id: business.id,
+          email: input.email,
+          nombre: input.nombre_usuario ?? null,
+          rol: "owner",
+        });
+      } else {
+        await this.userRepository.update(input.userId, {
+          business_id: business.id,
+        });
+      }
 
-    await this.userRepository.addBusinessAccess(input.userId, business.id);
+      await this.userRepository.addBusinessAccess(input.userId, business.id);
+    } catch (error) {
+      await this.businessRepository.delete(business.id).catch(() => {});
+      throw error;
+    }
 
     // Registrar dominios en Vercel en background — no bloquea ni rompe el flujo
     vercelService.provisionDomains(business.slug).catch(() => {});
