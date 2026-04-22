@@ -75,7 +75,7 @@ export class BusinessController {
       const { business_id } = req.body as { business_id: string };
 
       const hasAccess = await this.userBusinessAccess.hasAccess(userId, business_id);
-      if (!hasAccess) throw new AppError("No tenés acceso a ese negocio", 403);
+      if (!hasAccess) throw new AppError("No tenes acceso a ese negocio", 403);
 
       await this.userRepository.update(userId, { business_id });
       invalidateUserCache(userId);
@@ -101,12 +101,13 @@ export class BusinessController {
       const userId = req.userId!;
       const businessId = req.params["id"] as string;
 
-      await this.assertAccessAndNotPrincipal(userId, businessId);
+      await this.assertAccess(userId, businessId);
+      await this.assertCanDeactivateBusiness(userId, businessId);
 
       await this.businessRepository.update(businessId, { activo: false });
       invalidateByBusinessId(businessId);
 
-      await this.switchToPrincipalIfActive(userId, businessId);
+      await this.switchAwayIfCurrent(userId, businessId);
 
       res.json({ message: "Sucursal desactivada correctamente" });
     } catch (error) {
@@ -119,8 +120,7 @@ export class BusinessController {
       const userId = req.userId!;
       const businessId = req.params["id"] as string;
 
-      const hasAccess = await this.userBusinessAccess.hasAccess(userId, businessId);
-      if (!hasAccess) throw new AppError("No tenés acceso a ese negocio", 403);
+      await this.assertAccess(userId, businessId);
 
       await this.businessRepository.update(businessId, { activo: true });
       invalidateByBusinessId(businessId);
@@ -141,13 +141,13 @@ export class BusinessController {
       const business = await this.businessRepository.findById(businessId);
       if (!business) throw new NotFoundError("Negocio");
       if (business.activo) {
-        throw new AppError("Desactivá la sucursal antes de eliminarla permanentemente", 400);
+        throw new AppError("Desactiva la sucursal antes de eliminarla permanentemente", 400);
       }
 
       await this.businessRepository.delete(businessId);
       invalidateByBusinessId(businessId);
 
-      await this.switchToPrincipalIfActive(userId, businessId);
+      await this.switchAwayIfCurrent(userId, businessId);
 
       res.json({ message: "Sucursal eliminada permanentemente" });
     } catch (error) {
@@ -155,35 +155,66 @@ export class BusinessController {
     }
   };
 
-  // ── Helpers privados ──────────────────────────────────────────────────────
+  private async assertAccess(userId: string, businessId: string): Promise<void> {
+    const hasAccess = await this.userBusinessAccess.hasAccess(userId, businessId);
+    if (!hasAccess) throw new AppError("No tenes acceso a ese negocio", 403);
+  }
 
   private async assertAccessAndNotPrincipal(
     userId: string,
     businessId: string,
   ): Promise<void> {
-    const hasAccess = await this.userBusinessAccess.hasAccess(userId, businessId);
-    if (!hasAccess) throw new AppError("No tenés acceso a ese negocio", 403);
+    await this.assertAccess(userId, businessId);
 
     const principalId = await this.userBusinessAccess.findPrincipalBusinessId(userId);
     if (principalId === businessId) {
       throw new AppError(
-        "No podés modificar el negocio principal desde el panel. Contactá soporte.",
+        "No podes eliminar el negocio principal desde el panel. Contacta soporte.",
         403,
       );
     }
   }
 
-  private async switchToPrincipalIfActive(
+  private async assertCanDeactivateBusiness(
     userId: string,
-    deactivatedBusinessId: string,
+    businessId: string,
   ): Promise<void> {
     const user = await this.userRepository.findById(userId);
-    if (user?.business_id !== deactivatedBusinessId) return;
+    const fallbackBusinessId = await this.findFallbackActiveBusinessId(userId, businessId);
 
-    const principalId = await this.userBusinessAccess.findPrincipalBusinessId(userId);
-    if (!principalId) return;
+    if (user?.business_id === businessId && !fallbackBusinessId) {
+      throw new AppError(
+        "Necesitas otra sucursal activa antes de desactivar la actual.",
+        400,
+      );
+    }
+  }
 
-    await this.userRepository.update(userId, { business_id: principalId });
+  private async switchAwayIfCurrent(
+    userId: string,
+    inactiveBusinessId: string,
+  ): Promise<void> {
+    const user = await this.userRepository.findById(userId);
+    if (user?.business_id !== inactiveBusinessId) return;
+
+    const fallbackBusinessId = await this.findFallbackActiveBusinessId(
+      userId,
+      inactiveBusinessId,
+    );
+    if (!fallbackBusinessId) return;
+
+    await this.userRepository.update(userId, { business_id: fallbackBusinessId });
     invalidateUserCache(userId);
+  }
+
+  private async findFallbackActiveBusinessId(
+    userId: string,
+    inactiveBusinessId: string,
+  ): Promise<string | null> {
+    const businesses = await this.userBusinessAccess.findByUser(userId);
+    const fallback = businesses.find(
+      (business) => business.id !== inactiveBusinessId && business.activo,
+    );
+    return fallback?.id ?? null;
   }
 }
