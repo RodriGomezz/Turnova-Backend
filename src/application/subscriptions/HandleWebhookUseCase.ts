@@ -57,12 +57,13 @@ export class HandleWebhookUseCase {
     const nextPeriodEnd = new Date(now);
     nextPeriodEnd.setDate(nextPeriodEnd.getDate() + 30);
 
+    // dlocal_subscription_id conserva el order_id original (identificador de la suscripción
+    // recurrente en dLocal). Solo actualizamos dlocal_payment_id con el ID del cobro puntual.
     await this.subscriptionRepository.updateStatus(subscription.id, "active", {
-      dlocal_subscription_id: paymentId,
-      dlocal_payment_id:      paymentId,
-      current_period_start:   now.toISOString(),
-      current_period_end:     nextPeriodEnd.toISOString(),
-      grace_period_ends_at:   null,
+      dlocal_payment_id:    paymentId,
+      current_period_start: now.toISOString(),
+      current_period_end:   nextPeriodEnd.toISOString(),
+      grace_period_ends_at: null,
     });
 
     if (previousActive && previousActive.id !== subscription.id) {
@@ -74,11 +75,12 @@ export class HandleWebhookUseCase {
     const business = await this.businessRepository.findById(subscription.business_id);
     if (
       business &&
-      (business.plan !== subscription.plan || business.trial_ends_at !== null)
+      (business.plan !== subscription.plan || business.trial_ends_at !== null || business.subscription_downgraded_at !== null)
     ) {
       await this.businessRepository.update(subscription.business_id, {
         plan: subscription.plan,
         trial_ends_at: null,
+        subscription_downgraded_at: null,
       });
     }
 
@@ -155,16 +157,26 @@ export class HandleWebhookUseCase {
   private async handlePaymentRefunded(payload: DLocalGoWebhookPayload): Promise<void> {
     const subscription = await this.findSubscription(payload);
     if (!subscription) return;
+
+    const now = new Date().toISOString();
+
+    // Reembolso en checkout no completado: simplemente cancelar
     if (subscription.status === "pending") {
       await this.subscriptionRepository.updateStatus(subscription.id, "canceled", {
-        canceled_at: new Date().toISOString(),
+        canceled_at: now,
       });
       return;
     }
 
-    const gracePeriodEndsAt = this.calcGracePeriodEnd(new Date().toISOString());
-    await this.subscriptionRepository.updateStatus(subscription.id, "grace_period", {
-      grace_period_ends_at: gracePeriodEndsAt,
+    // Reembolso intencional (iniciado desde el panel de soporte o via refund explícito):
+    // cancelar de inmediato sin período de gracia y degradar el negocio.
+    await this.subscriptionRepository.updateStatus(subscription.id, "expired", {
+      canceled_at: now,
+    });
+
+    await this.businessRepository.update(subscription.business_id, {
+      plan: "starter",
+      subscription_downgraded_at: now,
     });
 
     const business = await this.businessRepository.findById(subscription.business_id);
@@ -173,9 +185,14 @@ export class HandleWebhookUseCase {
         to:                business?.email ?? "",
         negocioNombre:     business?.nombre ?? "",
         plan:              subscription.plan,
-        gracePeriodEndsAt,
+        gracePeriodEndsAt: now,
       }),
     );
+
+    logger.info("Suscripción expirada por reembolso", {
+      subscriptionId: subscription.id,
+      businessId: subscription.business_id,
+    });
   }
 
   // ── Búsqueda de suscripción ───────────────────────────────────────────────
@@ -206,12 +223,20 @@ export class HandleWebhookUseCase {
     }
 
     // 4. Fallback: dLocal Go no siempre envía order_id en el primer webhook.
-    //    Si podemos extraer un businessId del order_id, lo usamos para acotar
-    //    la búsqueda y evitar asignar el webhook al checkout de otro negocio.
+    //    Solo se usa si el order_id permite extraer un businessId — nunca sin restricción
+    //    de negocio para evitar asignar el webhook al checkout de otro negocio.
     const businessIdFromOrder = orderId ? orderId.split("_")[0] : undefined;
+    if (!businessIdFromOrder) {
+      logger.warn("Suscripción no encontrada para webhook (sin order_id para acotar búsqueda)", {
+        paymentId,
+        orderId,
+      });
+      return null;
+    }
+
     const recent = await this.subscriptionRepository.findMostRecentPending(businessIdFromOrder);
     if (recent) {
-      logger.info("Suscripción encontrada por fallback", {
+      logger.info("Suscripción encontrada por fallback (acotado por businessId)", {
         subscriptionId: recent.id,
         paymentId,
         businessIdFromOrder,
@@ -272,4 +297,3 @@ export class HandleWebhookUseCase {
     );
   }
 }
-

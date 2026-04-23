@@ -123,7 +123,7 @@ export class BookingController {
       if (barber.business_id !== business.id) throw new ForbiddenError();
 
       const businessStatus = getBusinessStatus(business);
-      if (businessStatus === "trial_expired" || businessStatus === "paused") {
+      if (businessStatus === "trial_expired" || businessStatus === "paused" || businessStatus === "subscription_expired") {
         throw new AppError("Este negocio no puede crear nuevos turnos con su estado actual", 403);
       }
 
@@ -191,7 +191,7 @@ export class BookingController {
 
       // No exponer slots de negocios que no aceptan reservas
       const slotStatus = getBusinessStatus(business);
-      if (slotStatus === "trial_expired" || slotStatus === "paused") {
+      if (slotStatus === "trial_expired" || slotStatus === "paused" || slotStatus === "subscription_expired") {
         res.json({ slots: [], fecha });
         return;
       }
@@ -249,7 +249,7 @@ export class BookingController {
 
       // Bloquear reservas si el negocio está pausado o su trial venció sin suscripción activa
       const businessStatus = getBusinessStatus(business);
-      if (businessStatus === "trial_expired" || businessStatus === "paused") {
+      if (businessStatus === "trial_expired" || businessStatus === "paused" || businessStatus === "subscription_expired") {
         throw new AppError("Este negocio no está aceptando reservas online en este momento", 403);
       }
 

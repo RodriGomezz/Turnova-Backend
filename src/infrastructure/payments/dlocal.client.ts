@@ -121,7 +121,6 @@ export const dlocalClient: IPaymentProvider = {
       res, "createPayment", { businessId: input.businessId, orderId },
     );
 
-
     if (!data.redirect_url) {
       throw new Error("dLocal Go no devolvió una redirect_url");
     }
@@ -143,6 +142,20 @@ export const dlocalClient: IPaymentProvider = {
       { method: "POST", headers: buildHeaders() },
     );
     if (!res.ok && res.status !== 404) {
+      const text = await res.text();
+      let body: DLocalGoErrorResponse = { code: res.status, message: text };
+      try { body = JSON.parse(text) as DLocalGoErrorResponse; } catch { /* noop */ }
+      throw new Error(`dLocal Go [${body.code}]: ${body.message}`);
+    }
+  },
+
+  async refundPayment(paymentId: string): Promise<void> {
+    logger.info("dLocal Go refundPayment", { paymentId });
+    const res = await fetch(
+      `${getBaseUrl()}/v1/payments/${paymentId}/refund`,
+      { method: "POST", headers: buildHeaders() },
+    );
+    if (!res.ok) {
       const text = await res.text();
       let body: DLocalGoErrorResponse = { code: res.status, message: text };
       try { body = JSON.parse(text) as DLocalGoErrorResponse; } catch { /* noop */ }

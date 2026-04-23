@@ -22,5 +22,6 @@ router.get("/", subscriptionController.get);
 router.get("/history", subscriptionController.getHistory);
 router.post("/create", validate(createSubscriptionSchema), subscriptionController.create);
 router.post("/cancel", validate(cancelSubscriptionSchema), subscriptionController.cancel);
+router.post("/refund", subscriptionController.refund);
 
 export default router;

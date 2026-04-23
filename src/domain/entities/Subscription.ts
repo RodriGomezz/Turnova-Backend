@@ -2,7 +2,7 @@ export type SubscriptionStatus =
   | "pending"      // checkout iniciado, pago todavía no confirmado
   | "active"       // pago al día
   | "past_due"     // pago falló, dLocal reintentando
-  | "grace_period" // reintentos agotados, 5 días de gracia antes de degradar
+  | "grace_period" // reintentos agotados, 7 días de gracia antes de degradar
   | "canceled"     // cancelado por el usuario
   | "expired";     // gracia expirada — plan degradado a Starter
 

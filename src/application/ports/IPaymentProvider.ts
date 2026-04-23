@@ -38,5 +38,6 @@ export interface SubscriptionDetails {
 export interface IPaymentProvider {
   createSubscription(input: CreateSubscriptionInput): Promise<CreateSubscriptionResult>;
   cancelSubscription(subscriptionId: string): Promise<void>;
+  refundPayment(paymentId: string): Promise<void>;
   getSubscription(subscriptionId: string): Promise<SubscriptionDetails>;
 }

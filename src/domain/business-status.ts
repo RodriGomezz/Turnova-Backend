@@ -1,9 +1,10 @@
-export type BusinessStatus = "active" | "trial" | "trial_expired" | "paused";
+export type BusinessStatus = "active" | "trial" | "trial_expired" | "subscription_expired" | "paused";
 
 export function getBusinessStatus(business: {
   plan: string;
   trial_ends_at: string | null;
   activo: boolean;
+  subscription_downgraded_at?: string | null;
 }): BusinessStatus {
   if (!business.activo) return "paused";
 
@@ -17,6 +18,11 @@ export function getBusinessStatus(business: {
   // Trial vencido sin suscripción activa = trial_expired
   if (business.plan === "starter" && trialEnd && trialEnd <= now) {
     return "trial_expired";
+  }
+
+  // Starter degradado por suscripción vencida o gracia expirada — no puede operar
+  if (business.plan === "starter" && business.subscription_downgraded_at) {
+    return "subscription_expired";
   }
 
   return "active";

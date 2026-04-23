@@ -37,4 +37,6 @@ export interface Business {
   domain_verified_at: string | null;
   domain_added_at: string | null;
   onboarding_completed: boolean;
+  /** Fecha en que la suscripción fue degradada a Starter por vencimiento o gracia expirada. Null si nunca tuvo suscripción pagada. */
+  subscription_downgraded_at: string | null;
 }

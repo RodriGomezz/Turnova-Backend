@@ -91,3 +91,35 @@ test("canceled subscriptions degrade after the paid period ends", () => {
     false,
   );
 });
+
+import { getBusinessStatus } from "../domain/business-status";
+
+test("getBusinessStatus returns subscription_expired for downgraded starter", () => {
+  const downgraded = {
+    plan: "starter",
+    trial_ends_at: null,
+    activo: true,
+    subscription_downgraded_at: "2026-04-01T00:00:00.000Z",
+  };
+  assert.equal(getBusinessStatus(downgraded), "subscription_expired");
+});
+
+test("getBusinessStatus returns active for original starter (never paid)", () => {
+  const originalStarter = {
+    plan: "starter",
+    trial_ends_at: null,
+    activo: true,
+    subscription_downgraded_at: null,
+  };
+  assert.equal(getBusinessStatus(originalStarter), "active");
+});
+
+test("getBusinessStatus returns active after reactivation (downgraded_at cleared)", () => {
+  const reactivated = {
+    plan: "pro",
+    trial_ends_at: null,
+    activo: true,
+    subscription_downgraded_at: null,
+  };
+  assert.equal(getBusinessStatus(reactivated), "active");
+});
