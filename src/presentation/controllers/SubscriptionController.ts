@@ -17,24 +17,30 @@ export class SubscriptionController {
   ) {}
 
   /** GET /api/subscriptions — estado actual de la suscripción */
-  get = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const activeSubscription = await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
-        req.businessId!,
-      );
-      const pendingSubscription = await this.subscriptionRepository.findPendingByBusinessId(
-        req.businessId!,
-      );
+get = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const activeSubscription = await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
+      req.businessId!,
+    );
 
-      res.json({
-        subscription: activeSubscription,
-        activeSubscription,
-        pendingSubscription,
-      });
-    } catch (error) {
-      next(error);
-    }
-  };
+    const pendingSubscription = await this.subscriptionRepository.findPendingByBusinessId(
+      req.businessId!,
+    );
+
+    const effectivePending =
+      pendingSubscription && activeSubscription?.plan === pendingSubscription.plan && activeSubscription?.status === 'active'
+        ? null
+        : pendingSubscription;
+
+    res.json({
+      subscription: activeSubscription,
+      activeSubscription,
+      pendingSubscription: effectivePending,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
   /** POST /api/subscriptions — iniciar checkout */
   create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
