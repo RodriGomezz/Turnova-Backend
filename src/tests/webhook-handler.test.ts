@@ -58,13 +58,13 @@ function makeRepo(sub: Subscription | null = null): ISubscriptionRepository {
     findActiveByBusinessId:            async () => (sub?.status === "active" ? sub : null),
     findCurrentEffectiveByBusinessId:  async () => sub,
     findPendingByBusinessId:           async () => (sub?.status === "pending" ? sub : null),
-    findByDlocalId:                    async (id) => (sub?.dlocal_subscription_id === id ? sub : null),
+    findByDlocalId:                    async (id: string) => (sub?.dlocal_subscription_id === id ? sub : null),
     findByPaymentId:                   async () => null,
     findExpiredGracePeriods:           async () => [],
     findEndedCanceledSubscriptions:    async () => [],
     findMostRecentPending:             async () => (sub?.status === "pending" ? sub : null),
-    create:                            async (d) => ({ ...d, id: "sub_new", created_at: new Date().toISOString() }) as Subscription,
-    updateStatus: async (id, status, extra = {}) => {
+    create:                            async (d: Omit<Subscription, "id" | "created_at">) => ({ ...d, id: "sub_new", created_at: new Date().toISOString() }) as Subscription,
+    updateStatus: async (id: string, status: SubscriptionStatus, extra: Partial<Subscription> = {}) => {
       updates.push({ id, status, extra });
       return { ...sub!, id, status, ...extra };
     },
@@ -76,7 +76,7 @@ function makeBusinessRepo(business: Business | null = buildBusiness()): IBusines
   const updates: Array<{ id: string; data: Partial<Business> }> = [];
   return {
     findById:  async () => business,
-    update:    async (id, data) => { updates.push({ id, data }); return { ...business!, ...data }; },
+    update:    async (id: string, data: Partial<Business>) => { updates.push({ id, data }); return { ...business!, ...data }; },
     _updates: updates,
   } as unknown as IBusinessRepository;
 }
