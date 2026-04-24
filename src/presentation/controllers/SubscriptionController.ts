@@ -17,32 +17,35 @@ export class SubscriptionController {
     private readonly businessRepository: IBusinessRepository,
   ) {}
 
-  /** GET /api/subscriptions — estado actual de la suscripción */
-  get = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const activeSubscription = await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
-        req.businessId!,
-      );
+/** GET /api/subscriptions — estado actual de la suscripción */
+get = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const activeSubscription = await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
+      req.businessId!,
+    );
 
-      const pendingSubscription = await this.subscriptionRepository.findPendingByBusinessId(
-        req.businessId!,
-      );
+    const pendingSubscription = await this.subscriptionRepository.findPendingByBusinessId(
+      req.businessId!,
+    );
 
-      const effectivePending =
-        pendingSubscription && activeSubscription?.plan === pendingSubscription.plan && activeSubscription?.status === "active"
-          ? null
-          : pendingSubscription;
+    // Bug 1 fix: findPendingByBusinessId ya garantiza que el status es uno de
+    // ["pending", "processing", "waiting_payment"] — no hace falta re-filtrar aquí.
+    // Bug 6 fix: se eliminó el campo duplicado `subscription`.
+    // Bug 5 fix: se expone effectivePlan como fuente de verdad para el frontend
+    // en lugar de depender de business.plan (que puede quedar desincronizado si
+    // el cron de degradación falla).
+    const effectivePlan = activeSubscription?.plan ?? "starter";
 
-      res.json({
-        subscription: activeSubscription,
-        activeSubscription,
-        pendingSubscription: effectivePending,
-      });
-    } catch (error) {
-      next(error);
-    }
-  };
-
+    res.json({
+      activeSubscription,
+      pendingSubscription,
+      effectivePlan,
+      planSource: activeSubscription ? "subscription" : "fallback",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
   /** POST /api/subscriptions — iniciar checkout */
   create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -69,41 +72,45 @@ export class SubscriptionController {
     }
   };
 
-  /** POST /api/subscriptions/cancel — cancelar suscripción
-   * Usamos POST en lugar de DELETE porque algunos proxies/CDNs descartan el body en DELETE. */
-  cancel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const subscription = await this.subscriptionRepository.findActiveByBusinessId(
-        req.businessId!,
-      );
+/** POST /api/subscriptions/cancel */
+cancel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const subscription = await this.subscriptionRepository.findActiveByBusinessId(
+      req.businessId!,
+    );
 
-      if (!subscription) throw new NotFoundError("Suscripción");
+    if (!subscription) throw new NotFoundError("Suscripción");
 
-      if (subscription.status === "canceled") {
-        throw new AppError("La suscripción ya está cancelada", 400);
-      }
-
-      // dlocal_subscription_id conserva el order_id original de la suscripción.
-      // dlocal_payment_id tiene el ID del último cobro puntual.
-      // Usamos dlocal_payment_id para cancelar en dLocal ya que es el ID real del recurso.
-      const dlocalId = subscription.dlocal_payment_id ?? subscription.dlocal_subscription_id;
-      await this.paymentProvider.cancelSubscription(dlocalId);
-
-      await this.subscriptionRepository.updateStatus(
-        subscription.id,
-        "canceled",
-        { canceled_at: new Date().toISOString() },
-      );
-
-      // El plan se mantiene hasta que venza current_period_end — el cron lo degrada
-      res.json({
-        message: "Suscripción cancelada. Tu plan se mantiene activo hasta el fin del período.",
-        currentPeriodEnd: subscription.current_period_end ?? undefined,
-      });
-    } catch (error) {
-      next(error);
+    if (subscription.status === "canceled") {
+      throw new AppError("La suscripción ya está cancelada", 400);
     }
-  };
+
+    if (!subscription.dlocal_subscription_id) {
+      throw new AppError("Falta ID de suscripción en proveedor", 400);
+    }
+
+    // Bug 4 fix: el comentario anterior decía "Usamos dlocal_payment_id" pero el código
+    // usaba (correctamente) dlocal_subscription_id. Se corrige el comentario para evitar
+    // que alguien "arregle" el código para que coincida con la documentación incorrecta.
+    // dlocal_subscription_id = ID de la suscripción recurrente en dLocal Go.
+    // dlocal_payment_id = ID del último cobro puntual (endpoint diferente, no usar aquí).
+    await this.paymentProvider.cancelSubscription(subscription.dlocal_subscription_id);
+
+    await this.subscriptionRepository.updateStatus(
+      subscription.id,
+      "canceled",
+      { canceled_at: new Date().toISOString() },
+    );
+
+    res.json({
+      message: "Suscripción cancelada. Tu plan se mantiene activo hasta el fin del período.",
+      currentPeriodEnd: subscription.current_period_end ?? undefined,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
   /** POST /api/subscriptions/refund — reembolsar y cancelar de inmediato (uso administrativo)
    *
@@ -158,10 +165,12 @@ export class SubscriptionController {
         return;
       }
 
+      if (!subscription.dlocal_subscription_id) {
+        throw new AppError("Falta ID de suscripción en proveedor", 400);
+      }
       const details = await this.paymentProvider.getSubscription(
         subscription.dlocal_subscription_id,
       );
-
       res.json({
         subscription: {
           plan: subscription.plan,

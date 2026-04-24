@@ -54,17 +54,21 @@ export class SubscriptionRepository implements ISubscriptionRepository {
     return data as Subscription;
   }
 
-  async findPendingByBusinessId(businessId: string): Promise<Subscription | null> {
-    const { data, error } = await supabase
-      .from(this.table).select("*")
-      .eq("business_id", businessId)
-      .eq("status", "pending")
-      .order("created_at", { ascending: false })
-      .limit(1).single();
-    if (error?.code === "PGRST116") return null;
-    if (error) throw new AppError(error.message, 500);
-    return data as Subscription;
-  }
+async findPendingByBusinessId(businessId: string): Promise<Subscription | null> {
+  const ttl = new Date();
+  ttl.setHours(ttl.getHours() - 24);
+
+  const { data, error } = await supabase
+    .from(this.table).select("*")
+    .eq("business_id", businessId)
+    .eq("status", "pending")            // ← solo pending, nada más existe en dLocal
+    .gte("created_at", ttl.toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1).single();
+  if (error?.code === "PGRST116") return null;
+  if (error) throw new AppError(error.message, 500);
+  return data as Subscription;
+}
 
   async findByDlocalId(dlocalSubscriptionId: string): Promise<Subscription | null> {
     const { data, error } = await supabase
