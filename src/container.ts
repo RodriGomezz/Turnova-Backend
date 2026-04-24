@@ -108,6 +108,7 @@ const handleWebhookUseCase = new HandleWebhookUseCase(
   subscriptionRepository,
   businessRepository,
   emailService,
+  dlocalClient,
 );
 
 // ─────────────────────────────────────────────────────────────────────────────

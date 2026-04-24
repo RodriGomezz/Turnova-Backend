@@ -33,6 +33,18 @@ export interface SubscriptionDetails {
   nextBillingDate: string | null;
 }
 
+/**
+ * Detalles de un pago individual en dLocal Go.
+ * Se usa en el webhook handler para recuperar el order_id cuando dLocal
+ * no lo incluye en el payload del webhook (comportamiento conocido de dLocal Go).
+ */
+export interface PaymentDetails {
+  paymentId: string;
+  /** order_id que fue enviado al crear el pago — coincide con dlocal_subscription_id en DB */
+  orderId: string | null;
+  status: string;
+}
+
 // ── Puerto (interfaz) ─────────────────────────────────────────────────────────
 
 export interface IPaymentProvider {
@@ -40,4 +52,10 @@ export interface IPaymentProvider {
   cancelSubscription(subscriptionId: string): Promise<void>;
   refundPayment(paymentId: string): Promise<void>;
   getSubscription(subscriptionId: string): Promise<SubscriptionDetails>;
+  /**
+   * Obtiene los detalles de un pago individual por su ID.
+   * Usado como fallback en el webhook handler cuando dLocal Go
+   * no envía el order_id en el payload del webhook.
+   */
+  getPaymentDetails(paymentId: string): Promise<PaymentDetails>;
 }

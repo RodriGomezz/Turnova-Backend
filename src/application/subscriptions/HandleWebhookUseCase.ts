@@ -1,6 +1,7 @@
 import { ISubscriptionRepository } from "../../domain/interfaces/ISubscriptionRepository";
 import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository";
 import { IEmailService } from "../ports/IEmailService";
+import { IPaymentProvider } from "../ports/IPaymentProvider";
 import { Subscription, SubscriptionStatus } from "../../domain/entities/Subscription";
 import { logger } from "../../infrastructure/logger";
 import { PLAN_PRICES } from "../../domain/plan-prices";
@@ -19,12 +20,38 @@ export class HandleWebhookUseCase {
     private readonly subscriptionRepository: ISubscriptionRepository,
     private readonly businessRepository: IBusinessRepository,
     private readonly emailService: IEmailService,
+    private readonly paymentProvider: IPaymentProvider,
   ) {}
 
   async execute(payload: DLocalGoWebhookPayload): Promise<void> {
     const paymentId = this.getPaymentId(payload);
+    const status    = this.normalizeStatus(payload.status);
+
+    // ── Enriquecer payload cuando dLocal Go no envía order_id ─────────────────
+    // dLocal Go omite order_id en el primer webhook PAID en algunos flujos.
+    // Consultamos la API para obtenerlo y usarlo en la búsqueda de la suscripción.
+    if (!payload.order_id && paymentId) {
+      try {
+        const details = await this.paymentProvider.getPaymentDetails(paymentId);
+        if (details.orderId) {
+          logger.info("Webhook enriquecido con order_id desde dLocal API", {
+            paymentId,
+            orderId: details.orderId,
+          });
+          payload = { ...payload, order_id: details.orderId };
+        } else {
+          logger.warn("dLocal API no devolvió order_id para el payment", { paymentId });
+        }
+      } catch (err) {
+        // No fatal — seguimos con los otros fallbacks de findSubscription
+        logger.warn("No se pudo obtener order_id desde dLocal API, continuando con fallbacks", {
+          paymentId,
+          err,
+        });
+      }
+    }
+
     const orderId = this.getOrderId(payload);
-    const status = this.normalizeStatus(payload.status);
 
     logger.info("Webhook dLocal Go recibido", {
       paymentId,

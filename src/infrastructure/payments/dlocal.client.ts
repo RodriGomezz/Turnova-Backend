@@ -4,6 +4,7 @@ import {
   CreateSubscriptionInput,
   CreateSubscriptionResult,
   SubscriptionDetails,
+  PaymentDetails,
 } from "../../application/ports/IPaymentProvider";
 import { PLAN_PRICES } from "../../domain/plan-prices";
 
@@ -24,6 +25,12 @@ interface DLocalGoPaymentResponse {
   status: string;
   redirect_url: string;
   order_id: string;
+}
+
+interface DLocalGoPaymentDetailResponse {
+  id: string;
+  status: string;
+  order_id?: string;
 }
 
 interface DLocalGoSubscriptionResponse {
@@ -175,6 +182,30 @@ export const dlocalClient: IPaymentProvider = {
       subscriptionId:  data.id,
       status:          mapDLocalGoStatus(data.status),
       nextBillingDate: data.next_charge_at,
+    };
+  },
+
+  /**
+   * Obtiene los detalles de un pago individual.
+   * dLocal Go: GET /v1/payments/{id}
+   *
+   * Se usa como fallback en el webhook handler cuando dLocal no incluye
+   * order_id en el payload del webhook PAID — comportamiento documentado
+   * y observado en producción.
+   */
+  async getPaymentDetails(paymentId: string): Promise<PaymentDetails> {
+    logger.info("dLocal Go getPaymentDetails", { paymentId });
+    const res = await fetch(
+      `${getBaseUrl()}/v1/payments/${paymentId}`,
+      { method: "GET", headers: buildHeaders() },
+    );
+    const data = await parseResponse<DLocalGoPaymentDetailResponse>(
+      res, "getPaymentDetails", { paymentId },
+    );
+    return {
+      paymentId: data.id,
+      orderId:   data.order_id ?? null,
+      status:    data.status,
     };
   },
 };
