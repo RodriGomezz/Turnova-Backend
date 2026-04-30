@@ -4,25 +4,20 @@
  * Único lugar de la aplicación donde se instancian dependencias concretas.
  * Los controladores y use cases reciben interfaces — solo aquí saben qué
  * implementación concreta se usa.
- *
- * Principios aplicados:
- *  - DIP: las capas internas dependen de abstracciones, no de implementaciones
- *  - SRP: cada clase tiene una sola razón para cambiar
- *  - OCP: agregar una implementación alternativa no requiere tocar use cases ni controllers
  */
 
 // ── Infraestructura ───────────────────────────────────────────────────────────
 import { BookingRepository } from "./infrastructure/database/BookingRepository";
 import { BusinessRepository } from "./infrastructure/database/BusinessRepository";
-import { BarberRepository } from "./infrastructure/database/BarberRepository"; // refactorizado
+import { BarberRepository } from "./infrastructure/database/BarberRepository";
 import { ServiceRepository } from "./infrastructure/database/ServiceRepository";
-import { ScheduleRepository } from "./infrastructure/database/ScheduleRepository"; // refactorizado
+import { ScheduleRepository } from "./infrastructure/database/ScheduleRepository";
 import { BlockedDateRepository } from "./infrastructure/database/BlockedDateRepository";
 import { UserRepository } from "./infrastructure/database/UserRepository";
 import { UserBusinessAccessRepository } from "./infrastructure/database/UserBusinessAccessRepository";
 import { SubscriptionRepository } from "./infrastructure/database/SubscriptionRepository";
 import { EmailService } from "./application/email/email.service";
-import { dlocalClient } from "./infrastructure/payments/dlocal.client";
+import { dlocalGoClient } from "./infrastructure/payments/dlocalgo.client";
 
 // ── Use Cases ─────────────────────────────────────────────────────────────────
 import { GetAvailableSlotsUseCase } from "./application/bookings/GetAvailableSlotsUseCase";
@@ -101,9 +96,11 @@ export const createServiceUseCase = new CreateServiceUseCase(serviceRepository);
 const createSubscriptionUseCase = new CreateSubscriptionUseCase(
   subscriptionRepository,
   businessRepository,
-  dlocalClient,
+  dlocalGoClient,
 );
 
+// HandleWebhookUseCase ya no necesita IPaymentProvider —
+// dLocal Go gestiona los cobros automáticamente.
 const handleWebhookUseCase = new HandleWebhookUseCase(
   subscriptionRepository,
   businessRepository,
@@ -145,12 +142,10 @@ export const serviceController = new ServiceController(
 
 export const subscriptionController = new SubscriptionController(
   subscriptionRepository,
-  dlocalClient,
+  dlocalGoClient,
   createSubscriptionUseCase,
   userRepository,
   businessRepository,
 );
 
-export const webhookController = new WebhookController(
-  handleWebhookUseCase,
-);
+export const webhookController = new WebhookController(handleWebhookUseCase);

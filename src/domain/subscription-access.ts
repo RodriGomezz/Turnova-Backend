@@ -7,9 +7,9 @@ export function hasActiveTrial(trialEndsAt: string | null): boolean {
 
 export function canUseCustomDomain(
   plan: string,
-  _trialEndsAt: string | null,
+  trialEndsAt: string | null,
 ): boolean {
-  return getPlanLimits(plan, false).customDomain;
+  return !hasActiveTrial(trialEndsAt) && getPlanLimits(plan, false).customDomain;
 }
 
 export function shouldDegradeExpiredGracePeriod(

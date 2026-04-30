@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from "express";
-import { supabase } from "../../infrastructure/database/supabase.client";
+import {
+  createSupabaseAuthClient,
+} from "../../infrastructure/database/supabase.client";
 import { UserRepository } from "../../infrastructure/database/UserRepository";
 import { UnauthorizedError } from "../../domain/errors";
 
@@ -56,10 +58,12 @@ export const authMiddleware = async (
 
     const token = authHeader.slice(7); // más eficiente que split(" ")[1]
 
+    const authClient = createSupabaseAuthClient();
+
     const {
       data: { user },
       error,
-    } = await supabase.auth.getUser(token);
+    } = await authClient.auth.getUser(token);
 
     if (error || !user) throw new UnauthorizedError();
 

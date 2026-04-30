@@ -1,8 +1,8 @@
 import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository";
 import { IUserRepository } from "../../domain/interfaces/IUserRepository";
 import { Business, BusinessPlan } from "../../domain/entities/Business";
-import { ConflictError } from "../../domain/errors"; // ← dominio, no middleware
-
+import { ConflictError } from "../../domain/errors";
+import { vercelService } from "../../infrastructure/services/vercel.service";
 const TRIAL_DAYS = 30;
 
 export interface CreateBusinessInput {
@@ -16,13 +16,8 @@ export interface CreateBusinessInput {
   termino_profesional_plural?: string;
   termino_servicio?: string;
   termino_reserva?: string;
-  /**
-   * Si es `true`, el usuario ya existe en BD (caso sucursal).
-   * Solo se actualiza su `business_id` activo.
-   */
   existingUser?: boolean;
   plan?: BusinessPlan;
-  /** `null` para sucursales (sin trial). `undefined` para calcular automáticamente. */
   trial_ends_at?: string | null;
 }
 
@@ -70,35 +65,36 @@ export class CreateBusinessUseCase {
       custom_domain: null,
     });
 
-    if (!input.existingUser) {
-      await this.userRepository.create({
-        id: input.userId,
-        business_id: business.id,
-        email: input.email,
-        nombre: input.nombre_usuario ?? null,
-        rol: "owner",
-      });
-    } else {
-      await this.userRepository.update(input.userId, {
-        business_id: business.id,
-      });
+    try {
+      if (!input.existingUser) {
+        await this.userRepository.create({
+          id: input.userId,
+          business_id: business.id,
+          email: input.email,
+          nombre: input.nombre_usuario ?? null,
+          rol: "owner",
+        });
+      } else {
+        await this.userRepository.update(input.userId, {
+          business_id: business.id,
+        });
+      }
+
+      await this.userRepository.addBusinessAccess(input.userId, business.id);
+    } catch (error) {
+      await this.businessRepository.delete(business.id).catch(() => {});
+      throw error;
     }
 
-    await this.userRepository.addBusinessAccess(input.userId, business.id);
+    // Registrar dominios en Vercel en background — no bloquea ni rompe el flujo
+    vercelService.provisionDomains(business.slug).catch(() => {});
 
     return business;
   }
 
-  /**
-   * Resuelve cuándo vence el trial:
-   * - `null` explícito → sin trial (sucursales)
-   * - `string` → fecha ya calculada por el caller
-   * - `undefined` → calcular: hoy + TRIAL_DAYS
-   */
   private resolveTrialEndsAt(value: string | null | undefined): string | null {
     if (value === null) return null;
     if (value !== undefined) return value;
-
     const d = new Date();
     d.setDate(d.getDate() + TRIAL_DAYS);
     return d.toISOString();

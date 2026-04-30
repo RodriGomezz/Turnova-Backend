@@ -1,42 +1,63 @@
 import { SubscriptionPlan } from "../../domain/entities/Subscription";
 
-// ── Tipos de entrada ──────────────────────────────────────────────────────────
-
-export interface CreateSubscriptionInput {
-  businessId: string;
-  plan: SubscriptionPlan;
-  /** Email del titular de la suscripción */
-  email: string;
-  /** Nombre del titular que aparece en el cobro */
-  firstName: string;
-  /** Apellido del titular que aparece en el cobro */
-  lastName: string;
-  /** URL a la que redirige dLocal después del pago */
-  successUrl: string;
-  cancelUrl: string;
+// ── Resultado de crear un checkout de suscripción en dLocal Go ────────────────
+export interface CreateCheckoutResult {
+  /** plan_token devuelto por dLocal Go al crear el plan (si se creó ahora) */
+  planToken: string;
+  /** URL a la que redirigir al usuario para que ingrese su tarjeta */
+  subscribeUrl: string;
+  /** ID interno del plan en dLocal Go */
+  dlocalPlanId: number;
 }
 
-// ── Tipos de salida ───────────────────────────────────────────────────────────
-
-export interface CreateSubscriptionResult {
-  /** ID de la suscripción en dLocal */
-  subscriptionId: string;
-  /** URL del checkout al que redirigir al usuario */
-  checkoutUrl: string;
-  /** Fecha en que se cobrará el siguiente período */
-  nextBillingDate: string;
+// ── Detalle de una ejecución (cobro) de suscripción ──────────────────────────
+export interface ExecutionDetails {
+  executionId: number;
+  orderId: string;
+  status: "PENDING" | "COMPLETED" | "DECLINED";
+  currency: string;
+  amountPaid: number;
 }
 
+// ── Detalle de una suscripción ────────────────────────────────────────────────
 export interface SubscriptionDetails {
-  subscriptionId: string;
-  status: "active" | "paused" | "canceled";
-  nextBillingDate: string | null;
+  subscriptionId: number;
+  subscriptionToken: string;
+  status: "CREATED" | "CONFIRMED";
+  active: boolean;
+  scheduledDate: string | null;
+  clientEmail: string | null;
 }
-
-// ── Puerto (interfaz) ─────────────────────────────────────────────────────────
 
 export interface IPaymentProvider {
-  createSubscription(input: CreateSubscriptionInput): Promise<CreateSubscriptionResult>;
-  cancelSubscription(subscriptionId: string): Promise<void>;
-  getSubscription(subscriptionId: string): Promise<SubscriptionDetails>;
+  /**
+   * Obtiene (o crea si no existe) el plan en dLocal Go y devuelve la
+   * subscribe_url para redirigir al usuario al checkout hosted.
+   */
+  getOrCreatePlan(
+    plan: SubscriptionPlan,
+    notificationUrl: string,
+    successUrl: string,
+    backUrl: string,
+    errorUrl: string,
+  ): Promise<CreateCheckoutResult>;
+
+  /**
+   * Cancela una suscripción activa en dLocal Go.
+   * planId y subscriptionId son los IDs numéricos de dLocal Go.
+   */
+  cancelSubscription(planId: number, subscriptionId: number): Promise<void>;
+
+  /**
+   * Consulta el estado de una suscripción en dLocal Go.
+   */
+  getSubscription(planId: number, subscriptionId: number): Promise<SubscriptionDetails>;
+
+  /**
+   * Consulta una ejecución puntual (cobro) de una suscripción.
+   */
+  getExecution(
+    subscriptionId: number,
+    executionId: string,
+  ): Promise<ExecutionDetails>;
 }

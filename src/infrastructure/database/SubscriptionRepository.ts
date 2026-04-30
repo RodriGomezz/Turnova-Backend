@@ -55,10 +55,14 @@ export class SubscriptionRepository implements ISubscriptionRepository {
   }
 
   async findPendingByBusinessId(businessId: string): Promise<Subscription | null> {
+    const ttl = new Date();
+    ttl.setHours(ttl.getHours() - 24);
+
     const { data, error } = await supabase
       .from(this.table).select("*")
       .eq("business_id", businessId)
       .eq("status", "pending")
+      .gte("created_at", ttl.toISOString())
       .order("created_at", { ascending: false })
       .limit(1).single();
     if (error?.code === "PGRST116") return null;
@@ -66,20 +70,31 @@ export class SubscriptionRepository implements ISubscriptionRepository {
     return data as Subscription;
   }
 
-  async findByDlocalId(dlocalSubscriptionId: string): Promise<Subscription | null> {
+  async findByPlanToken(planToken: string): Promise<Subscription | null> {
     const { data, error } = await supabase
       .from(this.table).select("*")
-      .eq("dlocal_subscription_id", dlocalSubscriptionId)
+      .eq("dlocal_plan_token", planToken)
+      .order("created_at", { ascending: false })
+      .limit(1).single();
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Subscription;
+  }
+
+  async findBySubscriptionToken(subscriptionToken: string): Promise<Subscription | null> {
+    const { data, error } = await supabase
+      .from(this.table).select("*")
+      .eq("dlocal_subscription_token", subscriptionToken)
       .single();
     if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
     return data as Subscription;
   }
 
-  async findByPaymentId(paymentId: string): Promise<Subscription | null> {
+  async findByExecutionId(executionId: string): Promise<Subscription | null> {
     const { data, error } = await supabase
       .from(this.table).select("*")
-      .eq("dlocal_payment_id", paymentId)
+      .eq("dlocal_last_execution_id", executionId)
       .single();
     if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
@@ -103,26 +118,6 @@ export class SubscriptionRepository implements ISubscriptionRepository {
       .lt("current_period_end", new Date().toISOString());
     if (error) throw new AppError(error.message, 500);
     return (data ?? []) as Subscription[];
-  }
-
-  async findMostRecentPending(businessId?: string): Promise<Subscription | null> {
-    let query = supabase
-      .from(this.table).select("*")
-      .eq("status", "pending")
-      .not("dlocal_subscription_id", "like", "DP-%")
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    // Restringir al negocio si se conoce — evita asignar el webhook de un negocio
-    // al checkout pendiente de otro cuando dLocal no envía order_id.
-    if (businessId) {
-      query = query.eq("business_id", businessId);
-    }
-
-    const { data, error } = await query.single();
-    if (error?.code === "PGRST116") return null;
-    if (error) throw new AppError(error.message, 500);
-    return data as Subscription;
   }
 
   async create(data: Omit<Subscription, "id" | "created_at">): Promise<Subscription> {

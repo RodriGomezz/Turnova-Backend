@@ -17,11 +17,21 @@ async function downgradeBusinessToStarter(
   nextStatus: "expired",
   reason: Record<string, unknown>,
 ): Promise<void> {
+  const now = new Date().toISOString();
+
+  // Primero marcamos la suscripción como expired para que el cron sea idempotente:
+  // si el proceso muere entre las dos operaciones, la suscripción ya no volverá
+  // a ser procesada en la próxima ejecución.
+  await subscriptionRepository.updateStatus(subscriptionId, nextStatus);
+
+  // Luego degradamos el negocio y registramos la fecha de degradación.
+  // subscription_downgraded_at permite a getBusinessStatus distinguir un Starter
+  // "original" (nunca pagó) de uno degradado (suscripción vencida), bloqueando
+  // al segundo para que no pueda seguir operando con plan gratuito.
   await businessRepository.update(businessId, {
     plan: "starter",
+    subscription_downgraded_at: now,
   });
-
-  await subscriptionRepository.updateStatus(subscriptionId, nextStatus);
 
   logger.info("Plan degradado a Starter por suscripción vencida", {
     businessId,

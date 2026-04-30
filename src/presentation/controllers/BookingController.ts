@@ -108,6 +108,67 @@ export class BookingController {
     }
   };
 
+  createPanel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const input = req.body as CreateBookingInput;
+      const business = await this.businessRepository.findById(req.businessId!);
+      if (!business) throw new NotFoundError("Negocio");
+
+      const service = await this.serviceRepository.findById(input.service_id);
+      if (!service) throw new NotFoundError("Servicio");
+      if (service.business_id !== business.id) throw new ForbiddenError();
+
+      const barber = await this.barberRepository.findById(input.barber_id);
+      if (!barber) throw new NotFoundError("Barbero");
+      if (barber.business_id !== business.id) throw new ForbiddenError();
+
+      const businessStatus = getBusinessStatus(business);
+      if (businessStatus === "trial_expired" || businessStatus === "paused" || businessStatus === "subscription_expired") {
+        throw new AppError("Este negocio no puede crear nuevos turnos con su estado actual", 403);
+      }
+
+      await this.checkMonthlyLimit(business.id, business.plan, business.trial_ends_at);
+
+      const hora_fin = this.calcHoraFin(input.hora_inicio, service.duracion_minutos);
+
+      const booking = await this.createBookingUseCase.execute({
+        business_id: business.id,
+        barber_id: input.barber_id,
+        service_id: input.service_id,
+        cliente_nombre: input.cliente_nombre,
+        cliente_email: input.cliente_email,
+        cliente_telefono: input.cliente_telefono,
+        fecha: input.fecha,
+        hora_inicio: input.hora_inicio,
+        hora_fin,
+        duracion_minutos: service.duracion_minutos,
+        buffer_minutos: business.buffer_minutos,
+        auto_confirmar: business.auto_confirmar ?? true,
+      });
+
+      this.sendEmailsAsync({
+        booking,
+        business,
+        service: { nombre: service.nombre },
+        barber: { nombre: barber.nombre },
+      });
+
+      res.status(201).json({
+        message: "Turno creado exitosamente",
+        booking: {
+          id: booking.id,
+          fecha: booking.fecha,
+          hora_inicio: booking.hora_inicio,
+          hora_fin: booking.hora_fin,
+          estado: booking.estado,
+          cancellation_token: booking.cancellation_token,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // ── Página pública de la barbería ─────────────────────────────────────────
 
   getAvailableSlots = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -130,7 +191,7 @@ export class BookingController {
 
       // No exponer slots de negocios que no aceptan reservas
       const slotStatus = getBusinessStatus(business);
-      if (slotStatus === "trial_expired" || slotStatus === "paused") {
+      if (slotStatus === "trial_expired" || slotStatus === "paused" || slotStatus === "subscription_expired") {
         res.json({ slots: [], fecha });
         return;
       }
@@ -188,7 +249,7 @@ export class BookingController {
 
       // Bloquear reservas si el negocio está pausado o su trial venció sin suscripción activa
       const businessStatus = getBusinessStatus(business);
-      if (businessStatus === "trial_expired" || businessStatus === "paused") {
+      if (businessStatus === "trial_expired" || businessStatus === "paused" || businessStatus === "subscription_expired") {
         throw new AppError("Este negocio no está aceptando reservas online en este momento", 403);
       }
 

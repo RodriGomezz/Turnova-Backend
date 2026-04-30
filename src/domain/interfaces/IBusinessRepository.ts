@@ -5,7 +5,7 @@ export interface IBusinessRepository {
   findBySlug(slug: string): Promise<Business | null>;
   findByCustomDomain(domain: string): Promise<Business | null>;
   findByAnyCustomDomain(domain: string): Promise<Business | null>;
-  create(data: Omit<Business, "id" | "created_at" | "domain_verified" | "domain_verified_at" | "domain_added_at" | "onboarding_completed">): Promise<Business>;
+  create(data: Omit<Business, "id" | "created_at" | "domain_verified" | "domain_verified_at" | "domain_added_at" | "onboarding_completed" | "subscription_downgraded_at">): Promise<Business>;
   update(id: string, data: Partial<Business>): Promise<Business>;
   delete(id: string): Promise<void>;
 }

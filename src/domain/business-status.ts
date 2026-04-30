@@ -1,9 +1,17 @@
-export type BusinessStatus = "active" | "trial" | "trial_expired" | "paused";
+export type BusinessStatus =
+  | "active"
+  | "trial"
+  | "trial_expired"
+  | "subscription_expired"
+  | "paused";
 
 export function getBusinessStatus(business: {
   plan: string;
   trial_ends_at: string | null;
   activo: boolean;
+  subscription_active?: boolean;
+  subscription_ends_at?: string | null;
+  subscription_downgraded_at?: string | null;
 }): BusinessStatus {
   if (!business.activo) return "paused";
 
@@ -14,9 +22,26 @@ export function getBusinessStatus(business: {
 
   if (trialEnd && trialEnd > now) return "trial";
 
-  // Trial vencido sin suscripción activa = trial_expired
-  if (business.plan === "starter" && trialEnd && trialEnd <= now) {
+  if (trialEnd && trialEnd <= now && business.plan === "starter") {
     return "trial_expired";
+  }
+
+  if (business.subscription_active) {
+    return "active";
+  }
+
+  if (
+    business.subscription_ends_at &&
+    new Date(business.subscription_ends_at) <= now
+  ) {
+    return "subscription_expired";
+  }
+
+  if (
+    business.plan === "starter" &&
+    business.subscription_downgraded_at
+  ) {
+    return "subscription_expired";
   }
 
   return "active";

@@ -14,7 +14,7 @@ export const PLAN_LIMITS: Record<string, PlanLimits> = {
     recordatorios: false,
     estadisticas: false,
     multiSucursal: false,
-    customDomain: false,
+    customDomain: true,
   },
   pro: {
     maxBarberos: 5,

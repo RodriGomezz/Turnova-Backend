@@ -11,8 +11,8 @@ const router = Router();
 
 // ── Webhook — sin auth, con verificación HMAC propia ─────────────────────────
 // IMPORTANTE: debe recibir el body como Buffer para verificar la firma.
-// En app.ts agregar antes de express.json():
-//   app.use('/api/webhooks', express.raw({ type: 'application/json' }));
+// En app.ts registrar antes de express.json():
+//   app.use('/api/subscriptions/dlocal', express.raw({ type: 'application/json' }));
 router.post("/dlocal", webhookController.handleDLocal);
 
 // ── Panel — protegidas ────────────────────────────────────────────────────────
@@ -22,5 +22,8 @@ router.get("/", subscriptionController.get);
 router.get("/history", subscriptionController.getHistory);
 router.post("/create", validate(createSubscriptionSchema), subscriptionController.create);
 router.post("/cancel", validate(cancelSubscriptionSchema), subscriptionController.cancel);
+
+// Nota: los reembolsos con dLocal Go se gestionan desde el dashboard de dLocal Go,
+// no mediante una llamada a la API desde el backend.
 
 export default router;
