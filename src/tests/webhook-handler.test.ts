@@ -25,6 +25,14 @@ function buildSubscription(overrides: Partial<Subscription> = {}): Subscription 
     status:                 "pending",
     dlocal_subscription_id: ORDER_ID,
     dlocal_payment_id:      null,
+    dlocal_card_id:         null,
+    dlocal_card_brand:      null,
+    dlocal_card_last4:      null,
+    dlocal_network_tx_reference: null,
+    payer_name:             null,
+    payer_email:            null,
+    payer_document:         null,
+    last_renewal_attempt_at: null,
     current_period_start:   null,
     current_period_end:     null,
     grace_period_ends_at:   null,
@@ -62,6 +70,7 @@ function makeRepo(sub: Subscription | null = null): ISubscriptionRepository {
     findByPaymentId:                   async () => null,
     findExpiredGracePeriods:           async () => [],
     findEndedCanceledSubscriptions:    async () => [],
+    findRenewalCandidates:             async () => [],
     findMostRecentPending:             async () => (sub?.status === "pending" ? sub : null),
     create:                            async (d: Omit<Subscription, "id" | "created_at">) => ({ ...d, id: "sub_new", created_at: new Date().toISOString() }) as Subscription,
     updateStatus: async (id: string, status: SubscriptionStatus, extra: Partial<Subscription> = {}) => {
@@ -98,7 +107,23 @@ function makePaymentProvider(orderId: string | null = ORDER_ID): IPaymentProvide
   const calls: string[] = [];
   return {
     getPaymentDetailsCalls: calls,
-    createSubscription:  async () => ({ subscriptionId: "", checkoutUrl: "", nextBillingDate: "" }),
+    createSubscription:  async () => ({
+      subscriptionId: "",
+      paymentId: "",
+      status: "pending",
+      nextBillingDate: "",
+      cardId: null,
+      cardBrand: null,
+      cardLast4: null,
+      networkTxReference: null,
+    }),
+    chargeSavedCardSubscription: async () => ({
+      paymentId: "",
+      status: "pending",
+      cardBrand: null,
+      cardLast4: null,
+      networkTxReference: null,
+    }),
     cancelSubscription:  async () => {},
     refundPayment:       async () => {},
     getSubscription:     async () => ({ subscriptionId: "", status: "active", nextBillingDate: null }),
@@ -167,7 +192,23 @@ test("PAID without order_id AND API throws — non-fatal, cannot resolve, no upd
   const bizRepo     = makeBusinessRepo();
   const email       = makeEmailService();
   const brokenProvider: IPaymentProvider = {
-    createSubscription:  async () => ({ subscriptionId: "", checkoutUrl: "", nextBillingDate: "" }),
+    createSubscription:  async () => ({
+      subscriptionId: "",
+      paymentId: "",
+      status: "pending",
+      nextBillingDate: "",
+      cardId: null,
+      cardBrand: null,
+      cardLast4: null,
+      networkTxReference: null,
+    }),
+    chargeSavedCardSubscription: async () => ({
+      paymentId: "",
+      status: "pending",
+      cardBrand: null,
+      cardLast4: null,
+      networkTxReference: null,
+    }),
     cancelSubscription:  async () => {},
     refundPayment:       async () => {},
     getSubscription:     async () => ({ subscriptionId: "", status: "active", nextBillingDate: null }),

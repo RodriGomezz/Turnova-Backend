@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodType } from "zod";
+import { logger } from "../../infrastructure/logger";
 
 interface Schemas {
   body?: ZodType;
@@ -17,8 +18,16 @@ export const validate =
 
     if (schemas.body) {
       const result = schemas.body.safeParse(req.body);
-      if (!result.success) errors["body"] = result.error.flatten().fieldErrors;
-      else req.body = result.data;
+      if (!result.success) {
+        errors["body"] = result.error.flatten().fieldErrors;
+        logger.warn("Validation failed", {
+          path: req.path,
+          body: req.body,
+          errors: errors["body"],
+        });
+      } else {
+        req.body = result.data;
+      }
     }
 
     if (schemas.params) {

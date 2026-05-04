@@ -15,11 +15,10 @@ export class WebhookController {
   /**
    * POST /api/subscriptions/dlocal
    *
-   * dLocal envía el objeto pago completo. También toleramos el formato reducido
-   * { payment_id, order_id, status } para compatibilidad.
-   *
-   * La firma usa HMAC-SHA256 sobre el body raw con el API Secret como clave.
-   * Header: X-Signature
+   * dLocal Go envía una notificación al notification_url del plan cada vez que:
+   *  - Un usuario completa el checkout (status: CONFIRMED)
+   *  - Se ejecuta un cobro recurrente (execution_status: COMPLETED | DECLINED)
+   *  - Se cancela una suscripción (status: CANCELLED)
    */
   handleDLocal = async (
     req: Request,
@@ -32,7 +31,7 @@ export class WebhookController {
       if (signature) {
         this.verifySignature(req.body as Buffer, signature);
       } else {
-        logger.warn("Webhook recibido sin X-Signature — omitiendo verificación");
+        logger.warn("Webhook dLocal Go recibido sin X-Signature — omitiendo verificación");
       }
 
       const rawBody = (req.body as Buffer).toString();
@@ -44,17 +43,31 @@ export class WebhookController {
         throw new AppError("Payload de webhook inválido", 400);
       }
 
-      if (!payload.payment_id && !payload.id) {
-        throw new AppError("Webhook sin id de pago", 400);
+      // Validación mínima: necesitamos al menos algún identificador
+      const hasIdentifier =
+        payload.subscription_token ||
+        payload.plan_token ||
+        payload.order_id ||
+        payload.external_id ||
+        payload.id;
+
+      if (!hasIdentifier) {
+        logger.warn("Webhook dLocal Go sin identificadores reconocibles", { payload });
+        // Responder 200 igual — evitar que dLocal Go reintente indefinidamente
+        res.status(200).json({ received: true });
+        return;
       }
 
-      // Responder 200 de inmediato — dLocal reintenta si no recibe respuesta rápida
+      // Responder 200 de inmediato — dLocal Go reintenta si no recibe respuesta rápida
       res.status(200).json({ received: true });
 
-      // Procesar de forma asíncrona sin bloquear la respuesta
+      // Procesar de forma asíncrona
       this.handleWebhookUseCase.execute(payload).catch((err) =>
         logger.error("Error procesando webhook dLocal Go", {
-          paymentId: payload.payment_id ?? payload.id,
+          subscriptionToken: payload.subscription_token,
+          planToken: payload.plan_token,
+          externalId: payload.external_id,
+          orderId: payload.order_id,
           err,
         }),
       );
@@ -63,12 +76,10 @@ export class WebhookController {
     }
   };
 
-  // ── Helpers privados ──────────────────────────────────────────────────────
-
   private verifySignature(rawBody: Buffer, signature: string): void {
-    const secret = process.env.DLOCAL_WEBHOOK_SECRET;
+    const secret = process.env.DLOCAL_SECRET_KEY;
     if (!secret) {
-      logger.warn("DLOCAL_WEBHOOK_SECRET no configurado — verificación omitida");
+      logger.warn("DLOCAL_SECRET_KEY no configurado — verificación de firma omitida");
       return;
     }
 

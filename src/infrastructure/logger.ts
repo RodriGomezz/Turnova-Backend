@@ -10,7 +10,6 @@ const SENSITIVE_FIELDS = new Set([
   "access_token",
   "authorization",
   "cliente_email",
-  "email",
 ]);
 
 // Elimina campos sensibles de los objetos antes de loggear
@@ -37,7 +36,7 @@ const logFormat = printf(
 );
 
 export const logger = createLogger({
-  level: process.env.NODE_ENV === "production" ? "warn" : "debug",
+  level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === "production" ? "warn" : "info"),
   format: combine(
     timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
     errors({ stack: true }),
