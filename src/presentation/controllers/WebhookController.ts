@@ -27,6 +27,8 @@ export class WebhookController {
 
       // Loggear raw body completo para diagnóstico
       const rawBody = (req.body as Buffer).toString();
+      console.log("=== WEBHOOK RAW BODY ===", rawBody);
+      console.log("=== WEBHOOK HEADERS ===", JSON.stringify(req.headers));
       logger.warn("Webhook dLocal Go raw body", { rawBody, headers: req.headers });
 
       let payload: DLocalGoWebhookPayload;
@@ -38,6 +40,8 @@ export class WebhookController {
         return;
       }
 
+      console.log("=== WEBHOOK PAYLOAD ===", JSON.stringify(payload, null, 2));
+      console.log("=== DLOCAL WEBHOOK PAYLOAD ===", JSON.stringify(payload, null, 2));
       logger.warn("Webhook dLocal Go payload parseado", { payload: JSON.stringify(payload) });
 
       // Buscar identificadores en todos los campos posibles del payload

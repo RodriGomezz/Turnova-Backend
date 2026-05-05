@@ -47,6 +47,9 @@ export class HandleWebhookUseCase {
       payload.execution_status ?? payload.status,
     );
 
+    console.log("=== HANDLE WEBHOOK PAYLOAD ===", JSON.stringify(payload, null, 2));
+    console.log("=== NORMALIZED STATUS ===", normalizedStatus);
+    console.log("=== WEBHOOK HANDLE ===", JSON.stringify({ payload, normalizedStatus }, null, 2));
     logger.warn("Webhook dLocal Go recibido FULL", { raw: JSON.stringify(payload), normalizedStatus });
 
     switch (normalizedStatus) {
@@ -71,6 +74,8 @@ export class HandleWebhookUseCase {
         break;
 
       default:
+        console.log("=== EVENTO IGNORADO — normalizedStatus:", normalizedStatus, "payload:", JSON.stringify(payload, null, 2));
+        console.log("=== WEBHOOK IGNORADO === normalizedStatus:", normalizedStatus, "payload:", JSON.stringify(payload, null, 2));
         logger.warn("Evento dLocal Go ignorado", { normalizedStatus, raw: JSON.stringify(payload) });
     }
   }
