@@ -1,371 +1,259 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  HandleWebhookUseCase,
-  DLocalGoWebhookPayload,
-} from "../application/subscriptions/HandleWebhookUseCase";
-import { ISubscriptionRepository } from "../domain/interfaces/ISubscriptionRepository";
-import { IBusinessRepository } from "../domain/interfaces/IBusinessRepository";
+import { HandleWebhookUseCase } from "../application/subscriptions/HandleWebhookUseCase";
 import { IEmailService } from "../application/ports/IEmailService";
-import { IPaymentProvider, PaymentDetails } from "../application/ports/IPaymentProvider";
-import { Subscription, SubscriptionStatus } from "../domain/entities/Subscription";
 import { Business } from "../domain/entities/Business";
-
-// ── Factories ─────────────────────────────────────────────────────────────────
+import { Subscription, SubscriptionStatus } from "../domain/entities/Subscription";
+import { IBusinessRepository } from "../domain/interfaces/IBusinessRepository";
+import { ISubscriptionRepository } from "../domain/interfaces/ISubscriptionRepository";
 
 const BUSINESS_ID = "biz_123";
-const ORDER_ID    = `${BUSINESS_ID}_1700000000000`;
-const PAY_ID      = "PAY_abc123";
 
 function buildSubscription(overrides: Partial<Subscription> = {}): Subscription {
   return {
-    id:                     "sub_1",
-    business_id:            BUSINESS_ID,
-    plan:                   "pro",
-    status:                 "pending",
-    dlocal_subscription_id: ORDER_ID,
-    dlocal_payment_id:      null,
-    dlocal_card_id:         null,
-    dlocal_card_brand:      null,
-    dlocal_card_last4:      null,
-    dlocal_network_tx_reference: null,
-    payer_name:             null,
-    payer_email:            null,
-    payer_document:         null,
-    last_renewal_attempt_at: null,
-    current_period_start:   null,
-    current_period_end:     null,
-    grace_period_ends_at:   null,
-    canceled_at:            null,
-    created_at:             "2026-04-01T00:00:00.000Z",
+    id: "sub_1",
+    business_id: BUSINESS_ID,
+    plan: "pro",
+    status: "pending",
+    dlocal_plan_id: 1001,
+    dlocal_plan_token: "plan_tok_1",
+    dlocal_subscription_id: null,
+    dlocal_subscription_token: null,
+    dlocal_last_execution_id: null,
+    payer_email: "owner@test.com",
+    current_period_start: null,
+    current_period_end: null,
+    grace_period_ends_at: null,
+    canceled_at: null,
+    created_at: "2026-04-01T00:00:00.000Z",
     ...overrides,
   };
 }
 
 function buildBusiness(overrides: Partial<Business> = {}): Business {
   return {
-    id:                         BUSINESS_ID,
-    nombre:                     "Barbería Test",
-    email:                      "test@test.com",
-    slug:                       "test",
-    plan:                       "starter",
-    trial_ends_at:              null,
+    id: BUSINESS_ID,
+    nombre: "Barberia Test",
+    slug: "barberia-test",
+    email: "owner@test.com",
+    plan: "starter",
+    trial_ends_at: null,
     subscription_downgraded_at: null,
-    activo:                     true,
+    activo: true,
+    created_at: "2026-04-01T00:00:00.000Z",
+    onboarding_completed: true,
+    domain_verified: false,
+    domain_verified_at: null,
+    domain_added_at: null,
+    logo_url: null,
+    buffer_minutos: 15,
+    auto_confirmar: true,
+    frase_bienvenida: null,
+    direccion: null,
+    whatsapp: null,
+    instagram: null,
+    facebook: null,
+    hero_imagen_url: null,
+    color_acento: "#000000",
+    color_fondo: "#ffffff",
+    color_superficie: "#ffffff",
+    tipografia: "clasica",
+    estilo_cards: "destacado",
+    termino_profesional: "Profesional",
+    termino_profesional_plural: "Profesionales",
+    termino_servicio: "Servicio",
+    termino_reserva: "Reserva",
+    horario_texto: null,
+    custom_domain: null,
     ...overrides,
   } as Business;
 }
 
-// ── Mock builders ─────────────────────────────────────────────────────────────
+function makeRepo(sub: Subscription | null) {
+  const updates: Array<{
+    id: string;
+    status: SubscriptionStatus;
+    extra: Partial<Subscription>;
+  }> = [];
 
-function makeRepo(sub: Subscription | null = null): ISubscriptionRepository {
-  const updates: Array<{ id: string; status: SubscriptionStatus; extra: Partial<Subscription> }> = [];
-  return {
-    findById:                          async () => sub,
-    findByBusinessId:                  async () => sub,
-    findActiveByBusinessId:            async () => (sub?.status === "active" ? sub : null),
-    findCurrentEffectiveByBusinessId:  async () => sub,
-    findPendingByBusinessId:           async () => (sub?.status === "pending" ? sub : null),
-    findByDlocalId:                    async (id: string) => (sub?.dlocal_subscription_id === id ? sub : null),
-    findByPaymentId:                   async () => null,
-    findExpiredGracePeriods:           async () => [],
-    findEndedCanceledSubscriptions:    async () => [],
-    findRenewalCandidates:             async () => [],
-    findMostRecentPending:             async () => (sub?.status === "pending" ? sub : null),
-    create:                            async (d: Omit<Subscription, "id" | "created_at">) => ({ ...d, id: "sub_new", created_at: new Date().toISOString() }) as Subscription,
-    updateStatus: async (id: string, status: SubscriptionStatus, extra: Partial<Subscription> = {}) => {
+  const repo: ISubscriptionRepository = {
+    findById: async (id) => (sub?.id === id ? sub : null),
+    findByBusinessId: async () => sub,
+    findActiveByBusinessId: async () => (sub?.status === "active" ? sub : null),
+    findCurrentEffectiveByBusinessId: async () => sub,
+    findPendingByBusinessId: async () => (sub?.status === "pending" ? sub : null),
+    findByPlanToken: async (token) =>
+      sub?.dlocal_plan_token === token ? sub : null,
+    findBySubscriptionToken: async (token) =>
+      sub?.dlocal_subscription_token === token ? sub : null,
+    findByExecutionId: async (executionId) =>
+      sub?.dlocal_last_execution_id === executionId ? sub : null,
+    findExpiredGracePeriods: async () => [],
+    findEndedCanceledSubscriptions: async () => [],
+    create: async () => {
+      throw new Error("not used");
+    },
+    updateStatus: async (id, status, extra = {}) => {
       updates.push({ id, status, extra });
       return { ...sub!, id, status, ...extra };
     },
-    _updates: updates,
-  } as unknown as ISubscriptionRepository;
+  };
+
+  return { repo, updates };
 }
 
-function makeBusinessRepo(business: Business | null = buildBusiness()): IBusinessRepository {
+function makeBusinessRepo(business: Business | null) {
   const updates: Array<{ id: string; data: Partial<Business> }> = [];
-  return {
-    findById:  async () => business,
-    update:    async (id: string, data: Partial<Business>) => { updates.push({ id, data }); return { ...business!, ...data }; },
-    _updates: updates,
-  } as unknown as IBusinessRepository;
+
+  const repo: IBusinessRepository = {
+    findById: async (id) => (business?.id === id ? business : null),
+    findBySlug: async () => null,
+    findByCustomDomain: async () => null,
+    findByAnyCustomDomain: async () => null,
+    create: async () => {
+      throw new Error("not used");
+    },
+    update: async (id, data) => {
+      updates.push({ id, data });
+      return { ...business!, ...data };
+    },
+    delete: async () => {},
+  };
+
+  return { repo, updates };
 }
 
 function makeEmailService(): IEmailService & { calls: string[] } {
   const calls: string[] = [];
+
   return {
     calls,
-    sendPaymentConfirmation: async () => { calls.push("sendPaymentConfirmation"); },
-    sendPaymentFailed:       async () => { calls.push("sendPaymentFailed"); },
-    sendPaymentFailedGrace:  async () => { calls.push("sendPaymentFailedGrace"); },
+    sendPaymentConfirmation: async () => {
+      calls.push("sendPaymentConfirmation");
+    },
+    sendPaymentFailed: async () => {
+      calls.push("sendPaymentFailed");
+    },
+    sendPaymentFailedGrace: async () => {
+      calls.push("sendPaymentFailedGrace");
+    },
     sendBookingConfirmation: async () => {},
     sendBookingNotification: async () => {},
-    sendBookingReminder:     async () => {},
-  } as unknown as IEmailService & { calls: string[] };
+    sendBookingReminder: async () => {},
+  } as IEmailService & { calls: string[] };
 }
 
-function makePaymentProvider(orderId: string | null = ORDER_ID): IPaymentProvider & { getPaymentDetailsCalls: string[] } {
-  const calls: string[] = [];
-  return {
-    getPaymentDetailsCalls: calls,
-    createSubscription:  async () => ({
-      subscriptionId: "",
-      paymentId: "",
-      status: "pending",
-      nextBillingDate: "",
-      cardId: null,
-      cardBrand: null,
-      cardLast4: null,
-      networkTxReference: null,
-    }),
-    chargeSavedCardSubscription: async () => ({
-      paymentId: "",
-      status: "pending",
-      cardBrand: null,
-      cardLast4: null,
-      networkTxReference: null,
-    }),
-    cancelSubscription:  async () => {},
-    refundPayment:       async () => {},
-    getSubscription:     async () => ({ subscriptionId: "", status: "active", nextBillingDate: null }),
-    getPaymentDetails:   async (paymentId: string): Promise<PaymentDetails> => {
-      calls.push(paymentId);
-      return { paymentId, orderId, status: "PAID" };
-    },
-  } as unknown as IPaymentProvider & { getPaymentDetailsCalls: string[] };
-}
-
-function makeUseCase(
-  sub: Subscription | null,
-  business?: Business | null,
-  paymentOrderId: string | null = ORDER_ID,
-) {
-  const repo        = makeRepo(sub);
-  const bizRepo     = makeBusinessRepo(business !== undefined ? business : buildBusiness());
-  const email       = makeEmailService();
-  const payment     = makePaymentProvider(paymentOrderId);
-  const useCase     = new HandleWebhookUseCase(repo, bizRepo, email, payment);
-  return { useCase, repo: repo as any, bizRepo: bizRepo as any, email, payment };
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
-test("PAID with order_id in payload — finds sub directly, no API call", async () => {
+test("activa la suscripcion por external_id y actualiza el negocio", async () => {
   const sub = buildSubscription();
-  const { useCase, repo, email, payment } = makeUseCase(sub);
+  const business = buildBusiness();
+  const { repo, updates } = makeRepo(sub);
+  const { repo: businessRepo, updates: businessUpdates } = makeBusinessRepo(business);
+  const email = makeEmailService();
+  const useCase = new HandleWebhookUseCase(repo, businessRepo, email);
 
-  await useCase.execute({ id: PAY_ID, status: "PAID", order_id: ORDER_ID });
+  await useCase.execute({
+    externalId: sub.id,
+    invoiceId: "exec_123",
+    subscriptionId: 4321,
+    status: "COMPLETED",
+    client_email: "payer@test.com",
+  });
 
-  assert.equal(payment.getPaymentDetailsCalls.length, 0, "should NOT call getPaymentDetails when order_id present");
-  assert.equal(repo._updates.length, 1);
-  assert.equal(repo._updates[0].status, "active");
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].status, "active");
+  assert.equal(updates[0].extra.dlocal_subscription_id, 4321);
+  assert.equal(updates[0].extra.dlocal_last_execution_id, "exec_123");
+  assert.equal(updates[0].extra.payer_email, "payer@test.com");
+  assert.equal(businessUpdates.length, 1);
+  assert.equal(businessUpdates[0].data.plan, "pro");
   assert.ok(email.calls.includes("sendPaymentConfirmation"));
 });
 
-test("PAID without order_id — calls getPaymentDetails to enrich payload, then activates", async () => {
-  const sub = buildSubscription();
-  const { useCase, repo, email, payment } = makeUseCase(sub);
+test("encuentra una renovacion por invoiceId cuando no viene external_id", async () => {
+  const sub = buildSubscription({
+    status: "active",
+    dlocal_last_execution_id: "ST-plan-2",
+  });
+  const { repo, updates } = makeRepo(sub);
+  const { repo: businessRepo } = makeBusinessRepo(buildBusiness({ plan: "pro" }));
+  const email = makeEmailService();
+  const useCase = new HandleWebhookUseCase(repo, businessRepo, email);
 
-  // Simulates the real dLocal Go bug: no order_id in webhook
-  await useCase.execute({ id: PAY_ID, status: "PAID" });
+  await useCase.execute({
+    invoiceId: "ST-plan-2",
+    status: "PAID",
+  });
 
-  assert.equal(payment.getPaymentDetailsCalls.length, 1, "should call getPaymentDetails once");
-  assert.equal(payment.getPaymentDetailsCalls[0], PAY_ID);
-  assert.equal(repo._updates.length, 1);
-  assert.equal(repo._updates[0].status, "active");
-  assert.ok(email.calls.includes("sendPaymentConfirmation"));
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].status, "active");
 });
 
-test("PAID without order_id AND API returns no order_id — cannot safely resolve, no update", async () => {
-  const sub = buildSubscription();
-  const { useCase, repo } = makeUseCase(sub, undefined, null); // API returns null orderId
-
-  await useCase.execute({ id: PAY_ID, status: "PAID" });
-
-  // Without a businessId there is no safe way to find the subscription —
-  // the code correctly skips rather than risk assigning the wrong business.
-  assert.equal(repo._updates.length, 0, "should NOT update when orderId cannot be resolved");
-});
-
-test("PAID without order_id AND API throws — non-fatal, cannot resolve, no update", async () => {
-  const sub = buildSubscription();
-  const repo        = makeRepo(sub);
-  const bizRepo     = makeBusinessRepo();
-  const email       = makeEmailService();
-  const brokenProvider: IPaymentProvider = {
-    createSubscription:  async () => ({
-      subscriptionId: "",
-      paymentId: "",
-      status: "pending",
-      nextBillingDate: "",
-      cardId: null,
-      cardBrand: null,
-      cardLast4: null,
-      networkTxReference: null,
-    }),
-    chargeSavedCardSubscription: async () => ({
-      paymentId: "",
-      status: "pending",
-      cardBrand: null,
-      cardLast4: null,
-      networkTxReference: null,
-    }),
-    cancelSubscription:  async () => {},
-    refundPayment:       async () => {},
-    getSubscription:     async () => ({ subscriptionId: "", status: "active", nextBillingDate: null }),
-    getPaymentDetails:   async () => { throw new Error("dLocal API timeout"); },
-  };
-  const useCase = new HandleWebhookUseCase(repo, bizRepo, email, brokenProvider);
-
-  // Should not throw even when the API is down
-  await assert.doesNotReject(() =>
-    useCase.execute({ id: PAY_ID, status: "PAID" })
-  );
-
-  // No businessId derivable => cannot safely find sub => correct to skip
-  assert.equal((repo as any)._updates.length, 0, "should not update when API fails and no order_id");
-});
-
-test("PAID — updates business.plan and clears trial_ends_at", async () => {
-  const sub = buildSubscription({ status: "pending" });
-  const biz = buildBusiness({ plan: "starter", trial_ends_at: "2099-01-01T00:00:00.000Z" });
-  const { useCase, bizRepo } = makeUseCase(sub, biz);
-
-  await useCase.execute({ id: PAY_ID, status: "PAID", order_id: ORDER_ID });
-
-  const update = bizRepo._updates.find((u: any) => u.data.plan === "pro");
-  assert.ok(update, "should update business.plan to pro");
-  assert.equal(update.data.trial_ends_at, null);
-  assert.equal(update.data.subscription_downgraded_at, null);
-});
-
-test("PAID — no business update when plan already matches and no trial", async () => {
-  const sub = buildSubscription({ status: "pending" });
-  const biz = buildBusiness({ plan: "pro", trial_ends_at: null, subscription_downgraded_at: null });
-  const { useCase, bizRepo } = makeUseCase(sub, biz);
-
-  await useCase.execute({ id: PAY_ID, status: "PAID", order_id: ORDER_ID });
-
-  assert.equal(bizRepo._updates.length, 0, "should NOT update business when plan already correct");
-});
-
-test("REJECTED on pending subscription — cancels it", async () => {
-  const sub = buildSubscription({ status: "pending" });
-  const { useCase, repo } = makeUseCase(sub);
-
-  await useCase.execute({ id: PAY_ID, status: "REJECTED", order_id: ORDER_ID });
-
-  assert.equal(repo._updates[0].status, "canceled");
-});
-
-test("REJECTED on active subscription — moves to past_due", async () => {
+test("mueve active a past_due cuando el cobro falla", async () => {
   const sub = buildSubscription({ status: "active" });
-  const { useCase, repo } = makeUseCase(sub);
+  const { repo, updates } = makeRepo(sub);
+  const { repo: businessRepo } = makeBusinessRepo(buildBusiness({ plan: "pro" }));
+  const email = makeEmailService();
+  const useCase = new HandleWebhookUseCase(repo, businessRepo, email);
 
-  await useCase.execute({ id: PAY_ID, status: "REJECTED", order_id: ORDER_ID });
+  await useCase.execute({
+    external_id: sub.id,
+    order_id: "exec_failed_1",
+    status: "DECLINED",
+  });
 
-  assert.equal(repo._updates[0].status, "past_due");
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].status, "past_due");
+  assert.ok(email.calls.includes("sendPaymentFailed"));
 });
 
-test("REJECTED on past_due subscription — moves to grace_period and sets grace date", async () => {
+test("mueve past_due a grace_period en el segundo fallo", async () => {
   const sub = buildSubscription({
     status: "past_due",
-    current_period_end: new Date(Date.now() + 86400000).toISOString(),
+    current_period_end: "2026-05-01T00:00:00.000Z",
   });
-  const { useCase, repo } = makeUseCase(sub);
+  const { repo, updates } = makeRepo(sub);
+  const { repo: businessRepo } = makeBusinessRepo(buildBusiness({ plan: "pro" }));
+  const email = makeEmailService();
+  const useCase = new HandleWebhookUseCase(repo, businessRepo, email);
 
-  await useCase.execute({ id: PAY_ID, status: "REJECTED", order_id: ORDER_ID });
+  await useCase.execute({
+    external_id: sub.id,
+    order_id: "exec_failed_2",
+    status: "REJECTED",
+  });
 
-  assert.equal(repo._updates[0].status, "grace_period");
-  assert.ok(repo._updates[0].extra.grace_period_ends_at, "should set grace_period_ends_at");
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].status, "grace_period");
+  assert.ok(updates[0].extra.grace_period_ends_at);
+  assert.ok(email.calls.includes("sendPaymentFailedGrace"));
 });
 
-test("REJECTED on grace_period subscription — does nothing (already in grace)", async () => {
-  const sub = buildSubscription({ status: "grace_period" });
-  const { useCase, repo } = makeUseCase(sub);
-
-  await useCase.execute({ id: PAY_ID, status: "REJECTED", order_id: ORDER_ID });
-
-  assert.equal(repo._updates.length, 0, "should NOT update when already in grace_period");
-});
-
-test("CANCELLED — sets subscription to canceled", async () => {
-  const sub = buildSubscription({ status: "active" });
-  const { useCase, repo } = makeUseCase(sub);
-
-  await useCase.execute({ id: PAY_ID, status: "CANCELLED", order_id: ORDER_ID });
-
-  assert.equal(repo._updates[0].status, "canceled");
-});
-
-test("REFUNDED on pending — cancels subscription", async () => {
+test("cancela suscripcion pendiente ante un fallo inicial", async () => {
   const sub = buildSubscription({ status: "pending" });
-  const { useCase, repo } = makeUseCase(sub);
+  const { repo, updates } = makeRepo(sub);
+  const { repo: businessRepo } = makeBusinessRepo(buildBusiness());
+  const email = makeEmailService();
+  const useCase = new HandleWebhookUseCase(repo, businessRepo, email);
 
-  await useCase.execute({ id: PAY_ID, status: "REFUNDED", order_id: ORDER_ID });
+  await useCase.execute({
+    external_id: sub.id,
+    status: "FAILED",
+  });
 
-  assert.equal(repo._updates[0].status, "canceled");
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].status, "canceled");
 });
 
-test("REFUNDED on active — expires subscription and degrades business to starter", async () => {
-  const sub = buildSubscription({ status: "active" });
-  const biz = buildBusiness({ plan: "pro" });
-  const { useCase, repo, bizRepo } = makeUseCase(sub, biz);
-
-  await useCase.execute({ id: PAY_ID, status: "REFUNDED", order_id: ORDER_ID });
-
-  assert.equal(repo._updates[0].status, "expired");
-  const bizUpdate = bizRepo._updates[0];
-  assert.equal(bizUpdate.data.plan, "starter");
-  assert.ok(bizUpdate.data.subscription_downgraded_at);
-});
-
-test("Webhook with no matching subscription — does nothing, no throw", async () => {
-  const { useCase, repo } = makeUseCase(null, null, null);
+test("ignora webhooks que no puede vincular a una suscripcion", async () => {
+  const { repo, updates } = makeRepo(null);
+  const { repo: businessRepo } = makeBusinessRepo(null);
+  const email = makeEmailService();
+  const useCase = new HandleWebhookUseCase(repo, businessRepo, email);
 
   await assert.doesNotReject(() =>
-    useCase.execute({ id: PAY_ID, status: "PAID" })
+    useCase.execute({ invoiceId: "exec_missing", status: "PAID" }),
   );
 
-  assert.equal(repo._updates.length, 0);
-});
-
-test("PENDING status — no DB updates, just logs", async () => {
-  const sub = buildSubscription();
-  const { useCase, repo } = makeUseCase(sub);
-
-  await useCase.execute({ id: PAY_ID, status: "PENDING", order_id: ORDER_ID });
-
-  assert.equal(repo._updates.length, 0);
-});
-
-test("normalizeStatus handles APPROVED as PAID", async () => {
-  const sub = buildSubscription();
-  const { useCase, repo } = makeUseCase(sub);
-
-  await useCase.execute({ id: PAY_ID, status: "APPROVED", order_id: ORDER_ID });
-
-  assert.equal(repo._updates[0].status, "active");
-});
-
-test("normalizeStatus handles AUTHORIZED as PAID", async () => {
-  const sub = buildSubscription();
-  const { useCase, repo } = makeUseCase(sub);
-
-  await useCase.execute({ id: PAY_ID, status: "AUTHORIZED", order_id: ORDER_ID });
-
-  assert.equal(repo._updates[0].status, "active");
-});
-
-test("Payload without order_id and API returns correct orderId — activates correct business", async () => {
-  const sub = buildSubscription({ business_id: BUSINESS_ID });
-  const biz = buildBusiness({ id: BUSINESS_ID, plan: "starter" });
-  const { useCase, repo, bizRepo } = makeUseCase(sub, biz, ORDER_ID);
-
-  await useCase.execute({ id: PAY_ID, status: "PAID" }); // no order_id
-
-  // Sub activated
-  assert.equal(repo._updates[0].status, "active");
-  // Business upgraded
-  const planUpdate = bizRepo._updates.find((u: any) => u.data.plan === "pro");
-  assert.ok(planUpdate, "business plan should be updated to pro");
+  assert.equal(updates.length, 0);
+  assert.equal(email.calls.length, 0);
 });

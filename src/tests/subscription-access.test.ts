@@ -6,6 +6,7 @@ import {
   shouldDegradeEndedCanceledSubscription,
   shouldDegradeExpiredGracePeriod,
 } from "../domain/subscription-access";
+import { getBusinessStatus } from "../domain/business-status";
 import { Subscription } from "../domain/entities/Subscription";
 
 function buildSubscription(
@@ -16,16 +17,12 @@ function buildSubscription(
     business_id: "business_1",
     plan: "pro",
     status: "active",
-    dlocal_subscription_id: "dlocal_sub_1",
-    dlocal_payment_id: null,
-    dlocal_card_id: null,
-    dlocal_card_brand: null,
-    dlocal_card_last4: null,
-    dlocal_network_tx_reference: null,
-    payer_name: null,
-    payer_email: null,
-    payer_document: null,
-    last_renewal_attempt_at: null,
+    dlocal_plan_id: 123,
+    dlocal_plan_token: "plan_tok_1",
+    dlocal_subscription_id: 456,
+    dlocal_subscription_token: "sub_tok_1",
+    dlocal_last_execution_id: "exec_1",
+    payer_email: "test@example.com",
     current_period_start: "2026-04-01T00:00:00.000Z",
     current_period_end: "2026-05-01T00:00:00.000Z",
     grace_period_ends_at: null,
@@ -100,8 +97,6 @@ test("canceled subscriptions degrade after the paid period ends", () => {
   );
 });
 
-import { getBusinessStatus } from "../domain/business-status";
-
 test("getBusinessStatus returns subscription_expired for downgraded starter", () => {
   const downgraded = {
     plan: "starter",
@@ -109,25 +104,25 @@ test("getBusinessStatus returns subscription_expired for downgraded starter", ()
     activo: true,
     subscription_downgraded_at: "2026-04-01T00:00:00.000Z",
   };
-  assert.equal(getBusinessStatus(downgraded), "subscription_expired");
+  assert.equal(getBusinessStatus(downgraded as any), "subscription_expired");
 });
 
-test("getBusinessStatus returns active for original starter (never paid)", () => {
+test("getBusinessStatus returns active for original starter", () => {
   const originalStarter = {
     plan: "starter",
     trial_ends_at: null,
     activo: true,
     subscription_downgraded_at: null,
   };
-  assert.equal(getBusinessStatus(originalStarter), "active");
+  assert.equal(getBusinessStatus(originalStarter as any), "active");
 });
 
-test("getBusinessStatus returns active after reactivation (downgraded_at cleared)", () => {
+test("getBusinessStatus returns active after reactivation", () => {
   const reactivated = {
     plan: "pro",
     trial_ends_at: null,
     activo: true,
     subscription_downgraded_at: null,
   };
-  assert.equal(getBusinessStatus(reactivated), "active");
+  assert.equal(getBusinessStatus(reactivated as any), "active");
 });

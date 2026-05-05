@@ -2,6 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { BookingController } from "../presentation/controllers/BookingController";
 
+declare global {
+  namespace Express {
+    interface Request {
+      userId?: string;
+      businessId?: string;
+    }
+  }
+}
+
 test("createPanel creates an owner booking with the current business", async () => {
   const booking = {
     id: "booking-1",
