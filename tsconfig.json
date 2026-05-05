@@ -18,12 +18,8 @@
   "exclude": [
     "node_modules",
     "dist",
-    "src/app/**/*",
-    "src/environments/**/*",
-    "src/styles/**/*",
-    "src/index.html",
-    "src/main.ts",
-    "src/replace-env.js",
-    "src/styles.scss"
+    "src/tests/**/*",
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts"
   ]
 }
