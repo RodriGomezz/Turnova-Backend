@@ -6,31 +6,38 @@ import { logger } from "../../infrastructure/logger";
 import { PLAN_PRICES } from "../../domain/plan-prices";
 
 /**
- * Payload que dLocal Go envía al notification_url del plan.
+ * Payload real que dLocal Go envía al notification_url.
  *
- * Los campos clave según la documentación:
- *  - subscription_token: identifica la suscripción
- *  - status: CREATED | CONFIRMED (suscripción) o PENDING | COMPLETED | DECLINED (ejecución)
- *  - order_id: ID de la ejecución (cobro), formato ST-{token}-{n}
- *  - type: "subscription" | "execution"
+ * Formato observado en producción (sandbox):
+ * {
+ *   "invoiceId":      "ST-{subscriptionToken}-{n}",  ← order_id de la ejecución
+ *   "subscriptionId": 9163,                           ← ID numérico de la suscripción
+ *   "externalId":     "uuid-de-nuestra-bd",           ← el que enviamos en ?external_id=
+ *   "mid":            4232
+ * }
+ *
+ * Sin campo "status" — la presencia del webhook indica pago procesado.
+ * Para pagos fallidos dLocal Go envía un campo "status": "DECLINED" o similar.
  */
 export interface DLocalGoWebhookPayload {
-  type?: string;
-  // Campos de suscripción
+  // Formato real observado (camelCase)
+  invoiceId?: string;         // = order_id, formato ST-{token}-{n}
+  subscriptionId?: number;    // ID numérico de la suscripción en dLocal Go
+  externalId?: string;        // ID interno de nuestra BD (enviado en ?external_id=)
+  mid?: number;               // Merchant ID
+
+  // Formato documentado (snake_case) — por si cambia
   subscription_token?: string;
   plan_token?: string;
-  status?: string;
-  client_email?: string;
-  id?: number | string;
-  // Campos de ejecución (cobro)
   order_id?: string;
   subscription_id?: number;
   plan_id?: number;
-  // Estado del cobro
-  execution_status?: string;
-  // Identificador externo — enviado por nosotros en el subscribe_url como ?external_id=
-  // dLocal Go lo devuelve en el success_url y también en el webhook
   external_id?: string;
+  client_email?: string;
+  id?: number | string;
+  type?: string;
+  status?: string;
+  execution_status?: string;
 }
 
 const GRACE_PERIOD_DAYS = 7;
@@ -43,46 +50,81 @@ export class HandleWebhookUseCase {
   ) {}
 
   async execute(payload: DLocalGoWebhookPayload): Promise<void> {
-    const normalizedStatus = this.normalizeStatus(
-      payload.execution_status ?? payload.status,
-    );
+    // Normalizar campos camelCase → snake_case
+    const normalized = this.normalizePayload(payload);
 
-    console.log("=== HANDLE WEBHOOK PAYLOAD ===", JSON.stringify(payload, null, 2));
-    console.log("=== NORMALIZED STATUS ===", normalizedStatus);
-    console.log("=== WEBHOOK HANDLE ===", JSON.stringify({ payload, normalizedStatus }, null, 2));
-    logger.warn("Webhook dLocal Go recibido FULL", { raw: JSON.stringify(payload), normalizedStatus });
+    logger.info("Webhook dLocal Go recibido", {
+      externalId:        normalized.external_id,
+      subscriptionId:    normalized.subscription_id,
+      invoiceId:         normalized.order_id,
+      status:            normalized.status,
+      executionStatus:   normalized.execution_status,
+    });
 
-    switch (normalizedStatus) {
-      case "CONFIRMED":
-        // Primera confirmación: el usuario completó el checkout y el primer pago fue exitoso
-        await this.handleSubscriptionConfirmed(payload);
+    const event = this.detectEvent(normalized);
+    logger.info("Webhook dLocal Go evento detectado", { event });
+
+    switch (event) {
+      case "PAYMENT_SUCCESS":
+        await this.handlePaymentSuccess(normalized);
         break;
-
-      case "COMPLETED":
-        // Cobro recurrente exitoso
-        await this.handleExecutionCompleted(payload);
+      case "PAYMENT_FAILED":
+        await this.handleExecutionDeclined(normalized);
         break;
-
-      case "DECLINED":
-        // Cobro fallido
-        await this.handleExecutionDeclined(payload);
+      case "SUBSCRIPTION_CANCELLED":
+        await this.handleSubscriptionCancelled(normalized);
         break;
-
-      case "CANCELLED":
-        // Suscripción cancelada desde el lado de dLocal Go
-        await this.handleSubscriptionCancelled(payload);
-        break;
-
       default:
-        console.log("=== EVENTO IGNORADO — normalizedStatus:", normalizedStatus, "payload:", JSON.stringify(payload, null, 2));
-        console.log("=== WEBHOOK IGNORADO === normalizedStatus:", normalizedStatus, "payload:", JSON.stringify(payload, null, 2));
-        logger.warn("Evento dLocal Go ignorado", { normalizedStatus, raw: JSON.stringify(payload) });
+        logger.warn("Webhook dLocal Go evento desconocido — ignorado", {
+          event,
+          payload: JSON.stringify(normalized),
+        });
     }
+  }
+
+  // ── Normalización ─────────────────────────────────────────────────────────
+
+  private normalizePayload(p: DLocalGoWebhookPayload): DLocalGoWebhookPayload {
+    return {
+      ...p,
+      // camelCase → snake_case
+      external_id:        p.external_id      ?? p.externalId,
+      subscription_id:    p.subscription_id  ?? p.subscriptionId,
+      order_id:           p.order_id         ?? p.invoiceId,
+    };
+  }
+
+  /**
+   * Detecta el tipo de evento basado en el payload.
+   *
+   * Reglas observadas en dLocal Go sandbox:
+   * - Solo tiene invoiceId/subscriptionId/externalId → pago exitoso (primer cobro o renovación)
+   * - Tiene status DECLINED/FAILED/REJECTED       → pago fallido
+   * - Tiene status CANCELLED/CANCELED             → suscripción cancelada
+   * - Tiene status CONFIRMED                      → primer pago exitoso (alternativo)
+   * - Tiene status COMPLETED                      → renovación exitosa (alternativo)
+   */
+  private detectEvent(p: DLocalGoWebhookPayload): string {
+    const status = (p.status ?? p.execution_status ?? "").toUpperCase();
+
+    if (["DECLINED", "FAILED", "REJECTED"].includes(status)) return "PAYMENT_FAILED";
+    if (["CANCELLED", "CANCELED"].includes(status))            return "SUBSCRIPTION_CANCELLED";
+
+    // Pago exitoso: tiene invoiceId/order_id Y (sin status O status positivo)
+    const hasInvoice = !!(p.order_id ?? p.invoiceId);
+    const hasPositiveStatus = ["CONFIRMED", "COMPLETED", "PAID", "APPROVED", ""].includes(status);
+
+    if (hasInvoice && hasPositiveStatus) return "PAYMENT_SUCCESS";
+
+    return `UNKNOWN:${status}`;
   }
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  private async handleSubscriptionConfirmed(
+  /**
+   * Maneja tanto el primer pago (pending → active) como renovaciones (active → active).
+   */
+  private async handlePaymentSuccess(
     payload: DLocalGoWebhookPayload,
   ): Promise<void> {
     const subscription = await this.findSubscription(payload);
@@ -93,83 +135,49 @@ export class HandleWebhookUseCase {
     nextPeriodEnd.setDate(nextPeriodEnd.getDate() + 30);
 
     await this.subscriptionRepository.updateStatus(subscription.id, "active", {
-      dlocal_subscription_id: payload.subscription_id ?? null,
-      dlocal_subscription_token: payload.subscription_token ?? null,
-      dlocal_last_execution_id: payload.order_id ?? null,
-      payer_email: payload.client_email ?? subscription.payer_email,
-      current_period_start: now.toISOString(),
-      current_period_end: nextPeriodEnd.toISOString(),
-      grace_period_ends_at: null,
+      dlocal_subscription_id:    payload.subscription_id ?? subscription.dlocal_subscription_id,
+      dlocal_subscription_token: payload.subscription_token ?? subscription.dlocal_subscription_token,
+      dlocal_last_execution_id:  payload.order_id ?? subscription.dlocal_last_execution_id,
+      payer_email:               payload.client_email ?? subscription.payer_email,
+      current_period_start:      now.toISOString(),
+      current_period_end:        nextPeriodEnd.toISOString(),
+      grace_period_ends_at:      null,
     });
 
     const business = await this.businessRepository.findById(subscription.business_id);
-    if (
-      business &&
-      (business.plan !== subscription.plan ||
+    if (business) {
+      const needsUpdate =
+        business.plan !== subscription.plan ||
         business.trial_ends_at !== null ||
-        business.subscription_downgraded_at !== null)
-    ) {
-      await this.businessRepository.update(subscription.business_id, {
-        plan: subscription.plan,
-        trial_ends_at: null,
-        subscription_downgraded_at: null,
-      });
+        business.subscription_downgraded_at !== null;
+
+      if (needsUpdate) {
+        await this.businessRepository.update(subscription.business_id, {
+          plan: subscription.plan,
+          trial_ends_at: null,
+          subscription_downgraded_at: null,
+        });
+      }
     }
 
     this.fireAndForget(() =>
       this.emailService.sendPaymentConfirmation({
-        to: business?.email ?? "",
-        negocioNombre: business?.nombre ?? "",
-        plan: subscription.plan,
-        amount: PLAN_PRICES[subscription.plan] ?? 0,
-        currency: "UYU",
+        to:              business?.email ?? "",
+        negocioNombre:   business?.nombre ?? "",
+        plan:            subscription.plan,
+        amount:          PLAN_PRICES[subscription.plan] ?? 0,
+        currency:        "UYU",
         nextBillingDate: nextPeriodEnd.toISOString(),
       }),
     );
 
-    logger.info("Suscripción confirmada y activada", {
-      subscriptionId: subscription.id,
-      businessId: subscription.business_id,
-      plan: subscription.plan,
+    logger.info("Suscripción activada por pago exitoso", {
+      subscriptionId:  subscription.id,
+      businessId:      subscription.business_id,
+      plan:            subscription.plan,
+      wasStatus:       subscription.status,
+      invoiceId:       payload.order_id,
     });
-  }
-
-  private async handleExecutionCompleted(
-    payload: DLocalGoWebhookPayload,
-  ): Promise<void> {
-    const subscription = await this.findSubscription(payload);
-    if (!subscription) return;
-
-    const now = new Date();
-    const nextPeriodEnd = new Date(now);
-    nextPeriodEnd.setDate(nextPeriodEnd.getDate() + 30);
-
-    await this.subscriptionRepository.updateStatus(subscription.id, "active", {
-      dlocal_last_execution_id: payload.order_id ?? null,
-      current_period_start: now.toISOString(),
-      current_period_end: nextPeriodEnd.toISOString(),
-      grace_period_ends_at: null,
-    });
-
-    const business = await this.businessRepository.findById(subscription.business_id);
-    if (business && business.plan !== subscription.plan) {
-      await this.businessRepository.update(subscription.business_id, {
-        plan: subscription.plan,
-        trial_ends_at: null,
-        subscription_downgraded_at: null,
-      });
-    }
-
-    this.fireAndForget(() =>
-      this.emailService.sendPaymentConfirmation({
-        to: business?.email ?? "",
-        negocioNombre: business?.nombre ?? "",
-        plan: subscription.plan,
-        amount: PLAN_PRICES[subscription.plan] ?? 0,
-        currency: "UYU",
-        nextBillingDate: nextPeriodEnd.toISOString(),
-      }),
-    );
   }
 
   private async handleExecutionDeclined(
@@ -178,7 +186,6 @@ export class HandleWebhookUseCase {
     const subscription = await this.findSubscription(payload);
     if (!subscription) return;
 
-    // Si estaba pending (nunca pagó), cancelar directamente
     if (subscription.status === "pending") {
       await this.subscriptionRepository.updateStatus(subscription.id, "canceled", {
         canceled_at: new Date().toISOString(),
@@ -186,7 +193,6 @@ export class HandleWebhookUseCase {
       return;
     }
 
-    // Si ya estaba en gracia, no hacer nada más (dLocal Go dejará de reintentar)
     if (subscription.status === "grace_period") return;
 
     const newStatus: SubscriptionStatus =
@@ -201,7 +207,7 @@ export class HandleWebhookUseCase {
 
     await this.subscriptionRepository.updateStatus(subscription.id, newStatus, {
       dlocal_last_execution_id: payload.order_id ?? null,
-      grace_period_ends_at: gracePeriodEndsAt,
+      grace_period_ends_at:     gracePeriodEndsAt,
     });
 
     const business = await this.businessRepository.findById(subscription.business_id);
@@ -209,18 +215,18 @@ export class HandleWebhookUseCase {
     if (newStatus === "grace_period") {
       this.fireAndForget(() =>
         this.emailService.sendPaymentFailedGrace({
-          to: business?.email ?? "",
-          negocioNombre: business?.nombre ?? "",
-          plan: subscription.plan,
+          to:                business?.email ?? "",
+          negocioNombre:     business?.nombre ?? "",
+          plan:              subscription.plan,
           gracePeriodEndsAt: gracePeriodEndsAt ?? "",
         }),
       );
     } else {
       this.fireAndForget(() =>
         this.emailService.sendPaymentFailed({
-          to: business?.email ?? "",
+          to:            business?.email ?? "",
           negocioNombre: business?.nombre ?? "",
-          plan: subscription.plan,
+          plan:          subscription.plan,
         }),
       );
     }
@@ -238,7 +244,7 @@ export class HandleWebhookUseCase {
 
     logger.info("Suscripción cancelada por webhook de dLocal Go", {
       subscriptionId: subscription.id,
-      businessId: subscription.business_id,
+      businessId:     subscription.business_id,
     });
   }
 
@@ -247,13 +253,17 @@ export class HandleWebhookUseCase {
   private async findSubscription(
     payload: DLocalGoWebhookPayload,
   ): Promise<Subscription | null> {
-    // 1. Por external_id — el más preciso, lo enviamos nosotros en el subscribe_url
-    if (payload.external_id) {
-      const sub = await this.subscriptionRepository.findById(payload.external_id);
-      if (sub) return sub;
+    // 1. Por external_id — el más preciso, lo enviamos como ?external_id= en la URL
+    const extId = payload.external_id ?? payload.externalId;
+    if (extId) {
+      const sub = await this.subscriptionRepository.findById(extId);
+      if (sub) {
+        logger.info("Suscripción encontrada por external_id", { extId });
+        return sub;
+      }
     }
 
-    // 2. Por subscription_token — disponible en webhooks posteriores al primer pago
+    // 2. Por subscription_token
     if (payload.subscription_token) {
       const sub = await this.subscriptionRepository.findBySubscriptionToken(
         payload.subscription_token,
@@ -261,49 +271,29 @@ export class HandleWebhookUseCase {
       if (sub) return sub;
     }
 
-    // 3. Por plan_token — solo busca en pending para evitar ambigüedad entre usuarios
+    // 3. Por plan_token (solo pending)
     if (payload.plan_token) {
       const sub = await this.subscriptionRepository.findByPlanToken(payload.plan_token);
       if (sub) return sub;
     }
 
-    // 4. Por order_id de la ejecución
-    if (payload.order_id) {
-      const sub = await this.subscriptionRepository.findByExecutionId(payload.order_id);
+    // 4. Por order_id / invoiceId
+    const invoiceId = payload.order_id ?? payload.invoiceId;
+    if (invoiceId) {
+      const sub = await this.subscriptionRepository.findByExecutionId(invoiceId);
       if (sub) return sub;
     }
 
     logger.warn("Suscripción no encontrada para webhook de dLocal Go", {
-      externalId: payload.external_id,
+      externalId:        payload.external_id ?? payload.externalId,
+      subscriptionId:    payload.subscription_id ?? payload.subscriptionId,
       subscriptionToken: payload.subscription_token,
-      planToken: payload.plan_token,
-      orderId: payload.order_id,
+      invoiceId,
     });
     return null;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-
-  private normalizeStatus(status?: string): string {
-    switch ((status ?? "").toUpperCase()) {
-      case "CONFIRMED":
-        return "CONFIRMED";
-      case "COMPLETED":
-        return "COMPLETED";
-      case "DECLINED":
-      case "FAILED":
-      case "REJECTED":
-        return "DECLINED";
-      case "CANCELLED":
-      case "CANCELED":
-        return "CANCELLED";
-      case "PENDING":
-      case "CREATED":
-        return "PENDING";
-      default:
-        return (status ?? "").toUpperCase();
-    }
-  }
 
   private calcGracePeriodEnd(fromDate: string): string {
     const d = new Date(fromDate);
