@@ -24,8 +24,10 @@ export class SubscriptionController {
         await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
           req.businessId!,
         );
-      const pendingSubscription =
+      const pendingSubscriptionRaw =
         await this.subscriptionRepository.findPendingByBusinessId(req.businessId!);
+      const pendingSubscription =
+        activeSubscription?.status === "active" ? null : pendingSubscriptionRaw;
       const effectivePlan = activeSubscription?.plan ?? "starter";
 
       res.json({
