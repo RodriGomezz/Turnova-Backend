@@ -88,15 +88,17 @@ export class CreateSubscriptionUseCase {
       canceled_at: null,
     });
 
-    // Construir la URL con email y external_id prellenados
-    // external_id se devuelve en el success_url como query param → permite
-    // identificar la suscripción en la BD sin ambigüedad (el plan_token es
-    // compartido entre todos los usuarios del mismo tier).
-    const params = new URLSearchParams();
-    if (input.email) params.set('email', input.email);
-    params.set('external_id', newSubscription.id);
+    // Construir URL del checkout con email y external_id prellenados.
+    // checkoutResult.subscribeUrl ya incluye ? (ej: .../validate/subscription/TOKEN)
+    // sin query params propios, pero usamos URLSearchParams para seguridad.
+    // El separator es ? si la URL no tiene params, & si ya los tiene.
+    const baseUrl = checkoutResult.subscribeUrl;
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    const checkoutParams = new URLSearchParams();
+    if (input.email) checkoutParams.set('email', input.email);
+    checkoutParams.set('external_id', newSubscription.id);
 
-    const subscribeUrl = `${checkoutResult.subscribeUrl}?${params.toString()}`;
+    const subscribeUrl = `${baseUrl}${separator}${checkoutParams.toString()}`;
 
     return {
       subscribeUrl,

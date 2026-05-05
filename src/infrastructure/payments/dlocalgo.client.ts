@@ -208,7 +208,7 @@ export const dlocalGoClient: IPaymentProvider = {
 
     const body = JSON.stringify({
       name: planName,
-      description: `Turnova ${planName} - Facturación mensual`,
+      description: `Kronu ${planName} - Facturación mensual`,
       country: COUNTRY,
       currency: CURRENCY,
       amount,

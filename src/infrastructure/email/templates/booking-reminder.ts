@@ -101,7 +101,7 @@ export function bookingReminderTemplate(data: BookingReminderData): string {
           <tr>
             <td style="background:#F5F2EC;border-radius:0 0 12px 12px;padding:20px 40px;text-align:center;">
               <p style="margin:0;font-size:11px;color:#9CA3AF;">
-                Este email fue enviado por <a href="https://turnio.uy" style="color:#C9A84C;text-decoration:none;">Turnio</a> en nombre de ${data.negocioNombre}.
+                Este email fue enviado por <a href="https://kronu.pro" style="color:#C9A84C;text-decoration:none;">Kronu</a> en nombre de ${data.negocioNombre}.
               </p>
             </td>
           </tr>

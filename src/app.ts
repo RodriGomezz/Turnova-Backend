@@ -38,7 +38,7 @@ app.use(
         return callback(null, true);
       }
 
-      const baseDomain = process.env.BASE_DOMAIN ?? "turnio.pro";
+      const baseDomain = process.env.BASE_DOMAIN ?? "kronu.pro";
       if (
         origin.match(
           new RegExp(`^https://[a-z0-9-]+\\.${baseDomain.replace(".", "\\.")}$`),
