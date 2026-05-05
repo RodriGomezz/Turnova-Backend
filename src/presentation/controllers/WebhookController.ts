@@ -38,7 +38,7 @@ export class WebhookController {
         return;
       }
 
-      logger.warn("Webhook dLocal Go payload parseado", { payload });
+      logger.warn("Webhook dLocal Go payload parseado", { payload: JSON.stringify(payload) });
 
       // Buscar identificadores en todos los campos posibles del payload
       // dLocal Go puede enviar los datos con distintos nombres de campo

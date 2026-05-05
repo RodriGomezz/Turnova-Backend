@@ -47,15 +47,7 @@ export class HandleWebhookUseCase {
       payload.execution_status ?? payload.status,
     );
 
-    logger.info("Webhook dLocal Go recibido", {
-      type: payload.type,
-      subscriptionToken: payload.subscription_token,
-      planToken: payload.plan_token,
-      orderId: payload.order_id,
-      status: payload.status,
-      executionStatus: payload.execution_status,
-      normalizedStatus,
-    });
+    logger.warn("Webhook dLocal Go recibido FULL", { raw: JSON.stringify(payload), normalizedStatus });
 
     switch (normalizedStatus) {
       case "CONFIRMED":
@@ -79,7 +71,7 @@ export class HandleWebhookUseCase {
         break;
 
       default:
-        logger.info("Evento dLocal Go ignorado", { normalizedStatus, payload });
+        logger.warn("Evento dLocal Go ignorado", { normalizedStatus, raw: JSON.stringify(payload) });
     }
   }
 
