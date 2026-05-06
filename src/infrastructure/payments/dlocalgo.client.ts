@@ -186,19 +186,31 @@ export const dlocalGoClient: IPaymentProvider = {
         body: patchBody,
       });
 
-      // Si el PATCH falla no abortamos — el plan sigue siendo usable
+      // Usar la subscribe_url del plan actualizado, no la vieja
+      let subscribeUrl = existing.subscribe_url;
+
       if (!patchRes.ok) {
         logger.warn("dLocal Go: no se pudieron actualizar las URLs del plan", {
           planId: existing.id,
           status: patchRes.status,
         });
       } else {
-        logger.info("dLocal Go: URLs del plan actualizadas", { planId: existing.id });
+        // La respuesta del PATCH tiene la subscribe_url actualizada
+        try {
+          const patched = await patchRes.json() as DLocalGoPlan;
+          subscribeUrl = patched.subscribe_url ?? existing.subscribe_url;
+          logger.info("dLocal Go: URLs del plan actualizadas", {
+            planId: existing.id,
+            subscribeUrl,
+          });
+        } catch {
+          logger.warn("dLocal Go: no se pudo leer respuesta del PATCH", { planId: existing.id });
+        }
       }
 
       return {
         planToken:    existing.plan_token,
-        subscribeUrl: existing.subscribe_url,
+        subscribeUrl,
         dlocalPlanId: existing.id,
       };
     }
