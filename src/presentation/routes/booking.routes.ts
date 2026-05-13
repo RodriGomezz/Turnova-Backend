@@ -43,6 +43,10 @@ const PUBLIC_SELECT = [
   "facebook",
   "tipografia",
   "estilo_cards",
+  "horario_texto",
+  "fotos_galeria",
+  "faq_items",
+  "resenas",
   "termino_profesional",
   "termino_profesional_plural",
   "termino_servicio",
@@ -92,7 +96,14 @@ async function getPublicBusinessData(slug: string) {
   return {
     notFound: false,
     data: {
-      business: { ...b, status: businessStatus },
+      business: {
+        ...b,
+        status: businessStatus,
+        resenas_promedio: Array.isArray((b as any).resenas) && (b as any).resenas.length > 0
+          ? (b as any).resenas.reduce((sum: number, item: any) => sum + (item.estrellas ?? 0), 0) / (b as any).resenas.length
+          : null,
+        resenas_total: Array.isArray((b as any).resenas) ? (b as any).resenas.length : null,
+      },
       barbers:  isDisponible ? (barbersRes.data ?? []) : [],
       services: isDisponible ? (servicesRes.data ?? []) : [],
     },

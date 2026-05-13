@@ -63,13 +63,13 @@ export class EmailService implements IEmailService {
     await resend.emails.send({
       from: EMAIL_FROM,
       to: data.to,
-      subject: `✓ Pago recibido — Plan ${data.plan} Turnio`,
+      subject: `✓ Pago recibido — Plan ${data.plan} Kronu`,
       html: `
         <p>Hola <strong>${data.negocioNombre}</strong>,</p>
         <p>Tu pago de <strong>${data.currency} ${data.amount.toLocaleString("es-UY")}</strong>
            para el plan <strong>${data.plan}</strong> fue procesado correctamente.</p>
         <p>Tu próximo cobro será el <strong>${fecha}</strong>.</p>
-        <p>Gracias por confiar en Turnio.</p>
+        <p>Gracias por confiar en Kronu.</p>
       `,
     });
     logger.info("Email de confirmación de pago enviado", { to: data.to });
@@ -79,7 +79,7 @@ export class EmailService implements IEmailService {
     await resend.emails.send({
       from: EMAIL_FROM,
       to: data.to,
-      subject: `⚠️ Problema con tu pago — Turnio`,
+      subject: `⚠️ Problema con tu pago — Kronu`,
       html: `
         <p>Hola <strong>${data.negocioNombre}</strong>,</p>
         <p>No pudimos procesar el pago de tu plan <strong>${data.plan}</strong>.</p>

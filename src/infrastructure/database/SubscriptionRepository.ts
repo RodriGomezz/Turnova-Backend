@@ -71,9 +71,13 @@ export class SubscriptionRepository implements ISubscriptionRepository {
   }
 
   async findByPlanToken(planToken: string): Promise<Subscription | null> {
+    // Solo buscar en pending: el plan_token es compartido entre todos los usuarios
+    // del mismo tier. Buscar en pending evita devolver la suscripción equivocada.
+    // El webhook CONFIRMED siempre trae subscription_token para búsquedas posteriores.
     const { data, error } = await supabase
       .from(this.table).select("*")
       .eq("dlocal_plan_token", planToken)
+      .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(1).single();
     if (error?.code === "PGRST116") return null;

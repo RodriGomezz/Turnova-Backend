@@ -62,6 +62,10 @@ export class CreateBusinessUseCase {
       facebook: null,
       tipografia: "clasica",
       estilo_cards: "minimalista",
+      horario_texto: null,
+      fotos_galeria: null,
+      faq_items: null,
+      resenas: null,
       custom_domain: null,
     });
 

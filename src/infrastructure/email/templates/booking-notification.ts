@@ -81,7 +81,7 @@ export function bookingNotificationTemplate(data: BookingNotificationData): stri
           <tr>
             <td style="background:#F5F2EC;border-radius:0 0 12px 12px;padding:20px 40px;text-align:center;">
               <p style="margin:0;font-size:11px;color:#9CA3AF;">
-                <a href="https://turnio.uy" style="color:#C9A84C;text-decoration:none;">Turnio</a> · Sistema de reservas
+                <a href="https://kronu.pro" style="color:#C9A84C;text-decoration:none;">Kronu</a> · Sistema de reservas
               </p>
             </td>
           </tr>

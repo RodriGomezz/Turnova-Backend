@@ -3,6 +3,20 @@ export type Tipografia = "clasica" | "moderna" | "minimalista" | "bold";
 export type EstiloCards = "destacado" | "minimalista" | "oscuro";
 export type BusinessStatus = "active" | "trial" | "trial_expired" | "paused";
 
+export interface BusinessFaqItem {
+  q: string;
+  a: string;
+}
+
+export interface BusinessReview {
+  id: string;
+  autor: string;
+  texto: string;
+  estrellas: number;
+  fecha: string;
+  verificada: boolean;
+}
+
 export interface Business {
   id: string;
   slug: string;
@@ -27,6 +41,10 @@ export interface Business {
   facebook: string | null;
   tipografia: Tipografia;
   estilo_cards: EstiloCards;
+  horario_texto: string | null;
+  fotos_galeria: string[] | null;
+  faq_items: BusinessFaqItem[] | null;
+  resenas: BusinessReview[] | null;
   tipo_negocio: string;
   termino_profesional: string;
   termino_profesional_plural: string;

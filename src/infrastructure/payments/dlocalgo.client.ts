@@ -164,12 +164,40 @@ export const dlocalGoClient: IPaymentProvider = {
     );
 
     if (existing) {
-      logger.info("dLocal Go: plan existente encontrado", {
+      logger.info("dLocal Go: plan existente encontrado, actualizando URLs", {
         planId: existing.id,
         planToken: existing.plan_token,
       });
+
+      // Siempre hacer PATCH para actualizar las URLs de redirección.
+      // Si FRONTEND_URL cambió (ej: de localhost a producción), el plan
+      // en dLocal Go quedaría con las URLs viejas y el usuario sería
+      // redirigido al lugar equivocado tras el pago.
+      const patchBody = JSON.stringify({
+        notification_url: notificationUrl,
+        success_url:      successUrl,
+        back_url:         backUrl,
+        error_url:        errorUrl,
+      });
+
+      const patchRes = await fetch(`${base}/v1/subscription/plan/${existing.id}`, {
+        method: "PATCH",
+        headers: { Authorization: auth, "Content-Type": "application/json" },
+        body: patchBody,
+      });
+
+      // Si el PATCH falla no abortamos — el plan sigue siendo usable
+      if (!patchRes.ok) {
+        logger.warn("dLocal Go: no se pudieron actualizar las URLs del plan", {
+          planId: existing.id,
+          status: patchRes.status,
+        });
+      } else {
+        logger.info("dLocal Go: URLs del plan actualizadas", { planId: existing.id });
+      }
+
       return {
-        planToken: existing.plan_token,
+        planToken:    existing.plan_token,
         subscribeUrl: existing.subscribe_url,
         dlocalPlanId: existing.id,
       };
@@ -180,7 +208,7 @@ export const dlocalGoClient: IPaymentProvider = {
 
     const body = JSON.stringify({
       name: planName,
-      description: `Turnova ${planName} - Facturación mensual`,
+      description: `Kronu ${planName} - Facturación mensual`,
       country: COUNTRY,
       currency: CURRENCY,
       amount,

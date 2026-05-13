@@ -13,8 +13,10 @@ export interface CreateSubscriptionInput {
 export interface CreateSubscriptionOutput {
   /** URL del checkout hosted de dLocal Go — redirigir al usuario aquí */
   subscribeUrl: string;
-  /** plan_token para construir la URL con ?email= si se desea */
+  /** plan_token de dLocal Go */
   planToken: string;
+  /** ID interno de la suscripción (también enviado como external_id a dLocal Go) */
+  subscriptionId: string;
 }
 
 export class CreateSubscriptionUseCase {
@@ -56,9 +58,9 @@ export class CreateSubscriptionUseCase {
     const frontendBase = process.env.FRONTEND_URL ?? "http://localhost:5173";
 
     const notificationUrl = `${apiBase}/api/subscriptions/dlocal`;
-    const successUrl = `${frontendBase}/dashboard/subscription?status=success`;
-    const backUrl = `${frontendBase}/dashboard/subscription`;
-    const errorUrl = `${frontendBase}/dashboard/subscription?status=error`;
+    const successUrl = `${frontendBase}/panel/configuracion?status=success&tab=planes`;
+    const backUrl = `${frontendBase}/panel/configuracion?status=canceled&tab=planes`;
+    const errorUrl = `${frontendBase}/panel/configuracion?status=error&tab=planes`;
 
     // Obtener o crear el plan en dLocal Go
     const checkoutResult = await this.paymentProvider.getOrCreatePlan(
@@ -70,7 +72,7 @@ export class CreateSubscriptionUseCase {
     );
 
     // Guardar el checkout pendiente en la BD
-    await this.subscriptionRepository.create({
+    const newSubscription = await this.subscriptionRepository.create({
       business_id: input.businessId,
       plan: input.plan,
       status: "pending",
@@ -86,14 +88,22 @@ export class CreateSubscriptionUseCase {
       canceled_at: null,
     });
 
-    // Construir la URL con email prellenado para mejor UX
-    const subscribeUrl = input.email
-      ? `${checkoutResult.subscribeUrl}?email=${encodeURIComponent(input.email)}`
-      : checkoutResult.subscribeUrl;
+    // Construir URL del checkout con email y external_id prellenados.
+    // checkoutResult.subscribeUrl ya incluye ? (ej: .../validate/subscription/TOKEN)
+    // sin query params propios, pero usamos URLSearchParams para seguridad.
+    // El separator es ? si la URL no tiene params, & si ya los tiene.
+    const baseUrl = checkoutResult.subscribeUrl;
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    const checkoutParams = new URLSearchParams();
+    if (input.email) checkoutParams.set('email', input.email);
+    checkoutParams.set('external_id', newSubscription.id);
+
+    const subscribeUrl = `${baseUrl}${separator}${checkoutParams.toString()}`;
 
     return {
       subscribeUrl,
       planToken: checkoutResult.planToken,
+      subscriptionId: newSubscription.id,
     };
   }
 }

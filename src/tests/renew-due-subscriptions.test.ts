@@ -1,161 +1,225 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { RenewDueSubscriptionsUseCase } from "../application/subscriptions/RenewDueSubscriptionsUseCase";
-import { ISubscriptionRepository } from "../domain/interfaces/ISubscriptionRepository";
+import { CreateSubscriptionUseCase } from "../application/subscriptions/CreateSubscriptionUseCase";
 import { IPaymentProvider } from "../application/ports/IPaymentProvider";
+import { Business } from "../domain/entities/Business";
 import { Subscription } from "../domain/entities/Subscription";
+import { IBusinessRepository } from "../domain/interfaces/IBusinessRepository";
+import { ISubscriptionRepository } from "../domain/interfaces/ISubscriptionRepository";
+import { SubscriptionController } from "../presentation/controllers/SubscriptionController";
+
+declare global {
+  namespace Express {
+    interface Request {
+      userId?: string;
+      businessId?: string;
+    }
+  }
+}
+
+function buildBusiness(overrides: Partial<Business> = {}): Business {
+  return {
+    id: "biz_1",
+    nombre: "Negocio Test",
+    slug: "negocio-test",
+    email: "owner@test.com",
+    plan: "starter",
+    trial_ends_at: null,
+    subscription_downgraded_at: null,
+    activo: true,
+    created_at: "2026-04-01T00:00:00.000Z",
+    onboarding_completed: true,
+    domain_verified: false,
+    domain_verified_at: null,
+    domain_added_at: null,
+    logo_url: null,
+    buffer_minutos: 15,
+    auto_confirmar: true,
+    frase_bienvenida: null,
+    direccion: null,
+    whatsapp: null,
+    instagram: null,
+    facebook: null,
+    hero_imagen_url: null,
+    color_acento: "#000000",
+    color_fondo: "#ffffff",
+    color_superficie: "#ffffff",
+    tipografia: "clasica",
+    estilo_cards: "destacado",
+    termino_profesional: "Profesional",
+    termino_profesional_plural: "Profesionales",
+    termino_servicio: "Servicio",
+    termino_reserva: "Reserva",
+    horario_texto: null,
+    custom_domain: null,
+    ...overrides,
+  } as Business;
+}
 
 function buildSubscription(overrides: Partial<Subscription> = {}): Subscription {
   return {
     id: "sub_1",
     business_id: "biz_1",
     plan: "pro",
-    status: "active",
-    dlocal_subscription_id: "biz_1_1700000000000",
-    dlocal_payment_id: null,
-    dlocal_card_id: "card_1",
-    dlocal_card_brand: "VI",
-    dlocal_card_last4: "1111",
-    dlocal_network_tx_reference: "ref_1",
-    payer_name: "Juan Perez",
-    payer_email: "juan@test.com",
-    payer_document: "12345678",
-    last_renewal_attempt_at: null,
-    current_period_start: "2026-03-01T00:00:00.000Z",
-    current_period_end: "2026-04-01T00:00:00.000Z",
+    status: "pending",
+    dlocal_plan_id: 1234,
+    dlocal_plan_token: "plan_tok_1",
+    dlocal_subscription_id: null,
+    dlocal_subscription_token: null,
+    dlocal_last_execution_id: null,
+    payer_email: "owner@test.com",
+    current_period_start: null,
+    current_period_end: null,
     grace_period_ends_at: null,
     canceled_at: null,
-    created_at: "2026-03-01T00:00:00.000Z",
+    created_at: "2026-04-01T00:00:00.000Z",
     ...overrides,
   };
 }
 
-function makeRepo(
-  subscriptions: Subscription[],
-): ISubscriptionRepository & { updates: Array<{ id: string; status: string; extra: Partial<Subscription> }> } {
-  const updates: Array<{ id: string; status: string; extra: Partial<Subscription> }> = [];
-  return {
-    updates,
-    findById: async () => subscriptions[0] ?? null,
-    findByBusinessId: async () => subscriptions[0] ?? null,
-    findActiveByBusinessId: async () => subscriptions[0] ?? null,
-    findCurrentEffectiveByBusinessId: async () => subscriptions[0] ?? null,
+test("create subscription permite re-suscribirse al mismo plan si la anterior esta cancelada", async () => {
+  const latestCanceled = buildSubscription({
+    status: "canceled",
+    plan: "pro",
+    current_period_end: "2099-01-01T00:00:00.000Z",
+  });
+
+  let canceledPendingId: string | null = null;
+  let createdPayload: Omit<Subscription, "id" | "created_at"> | null = null;
+
+  const subscriptionRepository: ISubscriptionRepository = {
+    findById: async () => latestCanceled,
+    findByBusinessId: async () => latestCanceled,
+    findActiveByBusinessId: async () => null,
+    findCurrentEffectiveByBusinessId: async () => latestCanceled,
     findPendingByBusinessId: async () => null,
-    findByDlocalId: async () => subscriptions[0] ?? null,
-    findByPaymentId: async () => subscriptions[0] ?? null,
+    findByPlanToken: async () => null,
+    findBySubscriptionToken: async () => null,
+    findByExecutionId: async () => null,
     findExpiredGracePeriods: async () => [],
     findEndedCanceledSubscriptions: async () => [],
-    findRenewalCandidates: async () => subscriptions,
-    findMostRecentPending: async () => null,
-    create: async () => subscriptions[0]!,
-    updateStatus: async (
-      id: string,
-      status: any,
-      extra: Partial<Subscription> = {},
-    ) => {
-      updates.push({ id, status, extra });
-      return { ...subscriptions[0]!, status, ...extra };
+    create: async (data) => {
+      createdPayload = data;
+      return { ...data, id: "sub_new", created_at: "2026-05-05T00:00:00.000Z" };
     },
-  } as unknown as ISubscriptionRepository & {
-    updates: Array<{ id: string; status: string; extra: Partial<Subscription> }>;
+    updateStatus: async (id, status, extra = {}) => {
+      canceledPendingId = `${id}:${status}`;
+      return { ...latestCanceled, id, status, ...extra };
+    },
   };
-}
 
-function makePaymentProvider(
-  status: "active" | "pending" | "rejected",
-): IPaymentProvider & { chargeCalls: number } {
-  let chargeCalls = 0;
-  return {
-    get chargeCalls() {
-      return chargeCalls;
-    },
-    createSubscription: async () => {
+  const businessRepository: IBusinessRepository = {
+    findById: async () => buildBusiness(),
+    findBySlug: async () => null,
+    findByCustomDomain: async () => null,
+    findByAnyCustomDomain: async () => null,
+    create: async () => {
       throw new Error("not used");
     },
-    chargeSavedCardSubscription: async () => {
-      chargeCalls += 1;
-      return {
-        paymentId: "pay_renew_1",
-        status,
-        cardBrand: "VI",
-        cardLast4: "1111",
-        networkTxReference: "ref_new",
-      };
-    },
+    update: async () => buildBusiness(),
+    delete: async () => {},
+  };
+
+  const paymentProvider: IPaymentProvider = {
+    getOrCreatePlan: async () => ({
+      planToken: "plan_tok_new",
+      subscribeUrl: "https://checkout.test/plan_tok_new",
+      dlocalPlanId: 999,
+    }),
     cancelSubscription: async () => {},
-    refundPayment: async () => {},
     getSubscription: async () => ({
-      subscriptionId: "",
-      status: "active",
-      nextBillingDate: null,
+      subscriptionId: 1,
+      subscriptionToken: "sub_tok",
+      status: "CONFIRMED",
+      active: true,
+      scheduledDate: null,
+      clientEmail: "owner@test.com",
     }),
-    getPaymentDetails: async () => ({
-      paymentId: "pay_renew_1",
-      orderId: "biz_1_1700000000000",
-      status: "PAID",
+    getExecution: async () => ({
+      executionId: 1,
+      orderId: "exec_1",
+      status: "COMPLETED",
+      currency: "UYU",
+      amountPaid: 1390,
     }),
   };
-}
 
-function makeWebhookHandler() {
-  const calls: Array<{ id?: string; order_id?: string; status?: string }> = [];
-  return {
-    calls,
-    execute: async (payload: { id?: string; order_id?: string; status?: string }) => {
-      calls.push(payload);
+  const useCase = new CreateSubscriptionUseCase(
+    subscriptionRepository,
+    businessRepository,
+    paymentProvider,
+  );
+
+  const result = await useCase.execute({
+    businessId: "biz_1",
+    plan: "pro",
+    email: "owner@test.com",
+  });
+
+  assert.equal(canceledPendingId, null);
+  assert.ok(createdPayload);
+  const created = createdPayload as Omit<Subscription, "id" | "created_at">;
+  assert.equal(created.plan, "pro");
+  assert.equal(result.planToken, "plan_tok_new");
+  assert.match(result.subscribeUrl, /external_id=sub_new/);
+});
+
+test("subscription controller oculta pending si ya existe una activa", async () => {
+  const active = buildSubscription({
+    status: "active",
+    dlocal_subscription_id: 321,
+    dlocal_subscription_token: "sub_tok_active",
+    current_period_start: "2026-05-01T00:00:00.000Z",
+    current_period_end: "2026-05-31T00:00:00.000Z",
+  });
+  const pending = buildSubscription({
+    id: "sub_pending",
+    status: "pending",
+  });
+
+  const subscriptionRepository: ISubscriptionRepository = {
+    findById: async () => null,
+    findByBusinessId: async () => active,
+    findActiveByBusinessId: async () => active,
+    findCurrentEffectiveByBusinessId: async () => active,
+    findPendingByBusinessId: async () => pending,
+    findByPlanToken: async () => null,
+    findBySubscriptionToken: async () => null,
+    findByExecutionId: async () => null,
+    findExpiredGracePeriods: async () => [],
+    findEndedCanceledSubscriptions: async () => [],
+    create: async () => {
+      throw new Error("not used");
+    },
+    updateStatus: async () => active,
+  };
+
+  const controller = new SubscriptionController(
+    subscriptionRepository,
+    {} as IPaymentProvider,
+    {} as CreateSubscriptionUseCase,
+    {} as any,
+    {} as any,
+  );
+
+  let payload: any = null;
+  const res = {
+    json(data: unknown) {
+      payload = data;
+      return this;
     },
   };
-}
 
-test("cobra suscripcion vencida y reusa la ruta PAID", async () => {
-  const repo = makeRepo([buildSubscription()]);
-  const paymentProvider = makePaymentProvider("active");
-  const webhook = makeWebhookHandler();
-  const useCase = new RenewDueSubscriptionsUseCase(
-    repo,
-    paymentProvider,
-    webhook as any,
+  await controller.get(
+    { businessId: "biz_1" } as any,
+    res as any,
+    (error?: unknown) => {
+      if (error) throw error;
+    },
   );
 
-  await useCase.execute(new Date("2026-04-29T12:00:00.000Z"));
-
-  assert.equal(paymentProvider.chargeCalls, 1);
-  assert.equal(repo.updates.length, 1);
-  assert.equal(repo.updates[0].extra.dlocal_payment_id, "pay_renew_1");
-  assert.equal(webhook.calls.length, 1);
-  assert.equal(webhook.calls[0].status, "PAID");
-});
-
-test("si el cobro es rechazado, reusa la ruta REJECTED", async () => {
-  const repo = makeRepo([buildSubscription({ status: "past_due" })]);
-  const paymentProvider = makePaymentProvider("rejected");
-  const webhook = makeWebhookHandler();
-  const useCase = new RenewDueSubscriptionsUseCase(
-    repo,
-    paymentProvider,
-    webhook as any,
-  );
-
-  await useCase.execute(new Date("2026-04-29T12:00:00.000Z"));
-
-  assert.equal(paymentProvider.chargeCalls, 1);
-  assert.equal(webhook.calls.length, 1);
-  assert.equal(webhook.calls[0].status, "REJECTED");
-});
-
-test("omite renovacion automatica si falta card_id", async () => {
-  const repo = makeRepo([buildSubscription({ dlocal_card_id: null })]);
-  const paymentProvider = makePaymentProvider("active");
-  const webhook = makeWebhookHandler();
-  const useCase = new RenewDueSubscriptionsUseCase(
-    repo,
-    paymentProvider,
-    webhook as any,
-  );
-
-  await useCase.execute(new Date("2026-04-29T12:00:00.000Z"));
-
-  assert.equal(paymentProvider.chargeCalls, 0);
-  assert.equal(repo.updates.length, 0);
-  assert.equal(webhook.calls.length, 0);
+  assert.equal(payload.activeSubscription.id, active.id);
+  assert.equal(payload.pendingSubscription, null);
+  assert.equal(payload.effectivePlan, "pro");
+  assert.equal(payload.planSource, "subscription");
 });

@@ -17,14 +17,17 @@ export class SubscriptionController {
     private readonly businessRepository: IBusinessRepository,
   ) {}
 
+  /** GET /api/subscriptions */
   get = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const activeSubscription =
         await this.subscriptionRepository.findCurrentEffectiveByBusinessId(
           req.businessId!,
         );
-      const pendingSubscription =
+      const pendingSubscriptionRaw =
         await this.subscriptionRepository.findPendingByBusinessId(req.businessId!);
+      const pendingSubscription =
+        activeSubscription?.status === "active" ? null : pendingSubscriptionRaw;
       const effectivePlan = activeSubscription?.plan ?? "starter";
 
       res.json({
@@ -40,9 +43,7 @@ export class SubscriptionController {
 
   /**
    * POST /api/subscriptions/create
-   *
-   * Devuelve la URL del checkout hosted de dLocal Go.
-   * El frontend debe redirigir al usuario a esa URL.
+   * Devuelve subscribeUrl — el frontend redirige al usuario a esa URL.
    */
   create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -60,28 +61,29 @@ export class SubscriptionController {
         email,
       });
 
+      logger.info("Checkout dLocal Go iniciado", {
+        businessId: req.businessId,
+        plan,
+        subscriptionId: result.subscriptionId,
+      });
+
       res.json({
         subscribeUrl: result.subscribeUrl,
-        planToken: result.planToken,
-        message: "Redirigí al usuario a subscribeUrl para completar el pago.",
+        planToken:    result.planToken,
       });
     } catch (error) {
       next(error);
     }
   };
 
-  /**
-   * POST /api/subscriptions/cancel
-   *
-   * Cancela la suscripción activa llamando a la API de dLocal Go.
-   */
+  /** POST /api/subscriptions/cancel */
   cancel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const subscription = await this.subscriptionRepository.findActiveByBusinessId(
-        req.businessId!,
-      );
+      const subscription =
+        await this.subscriptionRepository.findActiveByBusinessId(req.businessId!);
 
       if (!subscription) throw new NotFoundError("Suscripción");
+
       if (subscription.status === "canceled") {
         throw new AppError("La suscripción ya está cancelada", 400);
       }
@@ -90,7 +92,7 @@ export class SubscriptionController {
         subscription.dlocal_plan_id === null ||
         subscription.dlocal_subscription_id === null
       ) {
-        // Todavía no completó el checkout — solo marcar como cancelada localmente
+        // Checkout pendiente — cancelar solo localmente
         await this.subscriptionRepository.updateStatus(subscription.id, "canceled", {
           canceled_at: new Date().toISOString(),
         });
@@ -99,7 +101,6 @@ export class SubscriptionController {
           subscription.dlocal_plan_id,
           subscription.dlocal_subscription_id,
         );
-
         await this.subscriptionRepository.updateStatus(subscription.id, "canceled", {
           canceled_at: new Date().toISOString(),
         });
@@ -115,6 +116,7 @@ export class SubscriptionController {
     }
   };
 
+  /** GET /api/subscriptions/history */
   getHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const subscription =
@@ -129,12 +131,12 @@ export class SubscriptionController {
 
       res.json({
         subscription: {
-          plan: subscription.plan,
-          status: subscription.status,
-          currentPeriodEnd: subscription.current_period_end,
+          plan:              subscription.plan,
+          status:            subscription.status,
+          currentPeriodEnd:  subscription.current_period_end,
           gracePeriodEndsAt: subscription.grace_period_ends_at,
-          nextBillingDate: subscription.current_period_end,
-          planToken: subscription.dlocal_plan_token,
+          nextBillingDate:   subscription.current_period_end,
+          planToken:         subscription.dlocal_plan_token,
           subscriptionToken: subscription.dlocal_subscription_token,
         },
       });

@@ -34,7 +34,7 @@ export function bookingConfirmationTemplate(data: BookingConfirmationData): stri
           <tr>
             <td style="background:#0A0A0A;border-radius:12px 12px 0 0;padding:32px 40px;text-align:center;">
               <p style="margin:0;font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#C9A84C;">
-                TURNIO
+                KRONU
               </p>
               <h1 style="margin:8px 0 0;font-size:28px;font-weight:400;color:#F5F2EC;letter-spacing:-1px;">
                 ¡Reserva confirmada!
@@ -92,7 +92,7 @@ export function bookingConfirmationTemplate(data: BookingConfirmationData): stri
           <tr>
             <td style="background:#F5F2EC;border-radius:0 0 12px 12px;padding:20px 40px;text-align:center;">
               <p style="margin:0;font-size:11px;color:#9CA3AF;">
-                Este email fue enviado por <a href="https://turnio.uy" style="color:#C9A84C;text-decoration:none;">Turnio</a> en nombre de ${data.negocioNombre}.
+                Este email fue enviado por <a href="https://Kronu.uy" style="color:#C9A84C;text-decoration:none;">Kronu</a> en nombre de ${data.negocioNombre}.
               </p>
             </td>
           </tr>
