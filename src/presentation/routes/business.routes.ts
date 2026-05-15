@@ -7,7 +7,7 @@ import { AppError } from "../middlewares/errorHandler.middleware";
 import { supabase } from "../../infrastructure/database/supabase.client";
 import { businessController as controller } from '../../container';
 
-const router = Router();
+const router: Router = Router();
 
 const businessPlanGuard = async (
   req: Request,

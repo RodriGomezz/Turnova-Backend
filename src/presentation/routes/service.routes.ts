@@ -5,7 +5,7 @@ import { authMiddleware } from "../middlewares/auth.middleware";
 import { createServiceSchema, updateServiceSchema } from "../schemas/service.schema";
 import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
 
-const router = Router();
+const router: Router = Router();
 
 // Ruta pública — sin auth
 router.get("/defaults", serviceController.listDefaults);

@@ -9,7 +9,7 @@ import {
 } from "../schemas/schedule.schema";
 import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
 
-const router = Router();
+const router: Router = Router();
 
 router.use(authMiddleware);
 

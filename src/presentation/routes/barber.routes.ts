@@ -5,7 +5,7 @@ import { authMiddleware } from '../middlewares/auth.middleware';
 import { createBarberSchema, updateBarberSchema } from '../schemas/barber.schema';
 import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
 
-const router = Router();
+const router: Router = Router();
 const controller = new BarberController();
 
 router.use(authMiddleware);

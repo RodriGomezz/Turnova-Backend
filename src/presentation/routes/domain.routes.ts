@@ -2,7 +2,7 @@ import { Router } from "express";
 import { DomainController } from "../controllers/DomainController";
 import { authMiddleware } from "../middlewares/auth.middleware";
 
-const router = Router();
+const router: Router = Router();
 const controller = new DomainController();
 
 router.use(authMiddleware);

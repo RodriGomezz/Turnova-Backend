@@ -5,7 +5,7 @@ import { authMiddleware } from "../middlewares/auth.middleware";
 import { authLimiter } from "../middlewares/rateLimiter.middleware";
 import { registerSchema, loginSchema } from "../schemas/auth.schema";
 
-const router = Router();
+const router: Router = Router();
 const controller = new AuthController();
 
 router.post(

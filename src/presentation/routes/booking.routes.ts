@@ -10,7 +10,8 @@ import { Business } from "../../domain/entities/Business";
 import { canUseCustomDomain } from "../../domain/subscription-access";
 import { bookingController as controller } from '../../container';
 
-const router = Router();
+
+const router: Router = Router();
 
 // ── Panel del dueño (protegidas) ──────────────────────────────
 router.get("/panel", authMiddleware, controller.listByDate);

@@ -7,7 +7,7 @@ import {
   cancelSubscriptionSchema,
 } from "../schemas/subscription.schema";
 
-const router = Router();
+const router: Router = Router();
 
 // ── Webhook — sin auth, con verificación HMAC propia ─────────────────────────
 // IMPORTANTE: debe recibir el body como Buffer para verificar la firma.

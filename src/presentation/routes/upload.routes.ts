@@ -3,7 +3,7 @@ import multer from "multer";
 import { uploadController } from "../controllers/uploadController";
 import { authMiddleware } from "../middlewares/auth.middleware";
 
-const router = Router();
+const router: Router = Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
