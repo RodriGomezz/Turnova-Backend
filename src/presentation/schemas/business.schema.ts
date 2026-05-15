@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const faqItemSchema = z.object({
+  q: z.string().min(1).max(120),
+  a: z.string().min(1).max(500),
+});
+
 export const updateBusinessSchema = z.object({
   nombre: z.string().min(1).max(100).optional(),
   email: z.string().email().nullable().optional(),
@@ -27,6 +32,9 @@ export const updateBusinessSchema = z.object({
   termino_profesional_plural: z.string().min(1).max(30).optional(),
   termino_servicio: z.string().min(1).max(30).optional(),
   termino_reserva: z.string().min(1).max(30).optional(),
+  horario_texto: z.string().max(200).nullable().optional(),
+  fotos_galeria: z.array(z.string().url()).max(8).nullable().optional(),
+  faq_items: z.array(faqItemSchema).max(8).nullable().optional(),
 });
 
 export type UpdateBusinessInput = z.infer<typeof updateBusinessSchema>;

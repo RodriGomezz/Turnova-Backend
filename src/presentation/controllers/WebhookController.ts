@@ -84,17 +84,9 @@ export class WebhookController {
         order_id:           orderId,
       };
 
-      res.status(200).json({ received: true });
+      await this.handleWebhookUseCase.execute(normalizedPayload);
 
-      this.handleWebhookUseCase.execute(normalizedPayload).catch((err) =>
-        logger.error("Error procesando webhook dLocal Go", {
-          subscriptionToken,
-          planToken,
-          externalId,
-          orderId,
-          err,
-        }),
-      );
+      res.status(200).json({ received: true });
     } catch (error) {
       next(error);
     }

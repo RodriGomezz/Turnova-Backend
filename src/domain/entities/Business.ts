@@ -2,6 +2,10 @@ export type BusinessPlan = "starter" | "pro" | "business";
 export type Tipografia = "clasica" | "moderna" | "minimalista" | "bold";
 export type EstiloCards = "destacado" | "minimalista" | "oscuro";
 export type BusinessStatus = "active" | "trial" | "trial_expired" | "paused";
+export interface BusinessFaqItem {
+  q: string;
+  a: string;
+}
 
 export interface Business {
   id: string;
@@ -32,6 +36,9 @@ export interface Business {
   termino_profesional_plural: string;
   termino_servicio: string;
   termino_reserva: string;
+  horario_texto: string | null;
+  fotos_galeria: string[] | null;
+  faq_items: BusinessFaqItem[] | null;
   custom_domain: string | null;
   domain_verified: boolean;
   domain_verified_at: string | null;

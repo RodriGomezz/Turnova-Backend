@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import { supabase } from "../../infrastructure/database/supabase.client";
 import { AppError } from "../../domain/errors";
-import { getPlanLimits } from "../../domain/plan-limits";
+import { UserBusinessAccessRepository } from "../../infrastructure/database/UserBusinessAccessRepository";
 
 export class StatsController {
+  private readonly userBusinessAccess = new UserBusinessAccessRepository();
+
   get = async (
     req: Request,
     res: Response,
@@ -11,10 +13,20 @@ export class StatsController {
   ): Promise<void> => {
     try {
       const businessId = req.businessId!;
+      const scope = req.query["scope"] === "network" ? "network" : "branch";
       const now = new Date();
       const year = parseInt(req.query["year"] as string) || now.getFullYear();
       const month =
         parseInt(req.query["month"] as string) || now.getMonth() + 1;
+      const businesses = await this.userBusinessAccess.findByUser(req.userId!);
+      const currentBusiness = businesses.find((business) => business.id === businessId);
+      const canViewNetwork = !!currentBusiness?.esPrincipal && businesses.length > 1;
+      const targetBusinessIds =
+        scope === "network" && canViewNetwork
+          ? businesses.filter((business) => business.activo).map((business) => business.id)
+          : [businessId];
+      const effectiveScope =
+        scope === "network" && canViewNetwork ? "network" : "branch";
 
       const from = `${year}-${month.toString().padStart(2, "0")}-01`;
       const lastDay = new Date(year, month, 0).getDate();
@@ -34,13 +46,13 @@ export class StatsController {
           .select(
             "id, estado, fecha, hora_inicio, barber_id, service_id, cliente_email, services(nombre, precio)",
           )
-          .eq("business_id", businessId)
+          .in("business_id", targetBusinessIds)
           .gte("fecha", from)
           .lte("fecha", to),
         supabase
           .from("bookings")
           .select("id, estado, services(precio)")
-          .eq("business_id", businessId)
+          .in("business_id", targetBusinessIds)
           .gte("fecha", prevFrom)
           .lte("fecha", prevTo)
           .neq("estado", "cancelada"),
@@ -137,7 +149,7 @@ export class StatsController {
         const { data: prevClients } = await supabase
           .from("bookings")
           .select("cliente_email")
-          .eq("business_id", businessId)
+          .in("business_id", targetBusinessIds)
           .lt("fecha", from)
           .neq("estado", "cancelada")
           .in("cliente_email", emailsActivos);
@@ -160,6 +172,9 @@ export class StatsController {
           : null;
 
       res.json({
+        scope: effectiveScope,
+        canViewNetwork,
+        businessIds: targetBusinessIds,
         periodo: { year, month, from, to },
         resumen: {
           totalTurnos: activos.length,

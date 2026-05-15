@@ -43,7 +43,7 @@ export class SubscriptionController {
 
   /**
    * POST /api/subscriptions/create
-   * Devuelve subscribeUrl — el frontend redirige al usuario a esa URL.
+   * Devuelve subscribeUrl y el frontend redirige al usuario a esa URL.
    */
   create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -69,7 +69,7 @@ export class SubscriptionController {
 
       res.json({
         subscribeUrl: result.subscribeUrl,
-        planToken:    result.planToken,
+        planToken: result.planToken,
       });
     } catch (error) {
       next(error);
@@ -80,7 +80,8 @@ export class SubscriptionController {
   cancel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const subscription =
-        await this.subscriptionRepository.findActiveByBusinessId(req.businessId!);
+        await this.subscriptionRepository.findActiveByBusinessId(req.businessId!) ??
+        await this.subscriptionRepository.findPendingByBusinessId(req.businessId!);
 
       if (!subscription) throw new NotFoundError("Suscripción");
 
@@ -92,7 +93,6 @@ export class SubscriptionController {
         subscription.dlocal_plan_id === null ||
         subscription.dlocal_subscription_id === null
       ) {
-        // Checkout pendiente — cancelar solo localmente
         await this.subscriptionRepository.updateStatus(subscription.id, "canceled", {
           canceled_at: new Date().toISOString(),
         });
@@ -106,9 +106,13 @@ export class SubscriptionController {
         });
       }
 
+      const message =
+        subscription.status === "pending"
+          ? "Cancelaste el checkout pendiente. Podés iniciar una nueva suscripción cuando quieras."
+          : "Suscripción cancelada. Tu plan se mantiene activo hasta el fin del período.";
+
       res.json({
-        message:
-          "Suscripción cancelada. Tu plan se mantiene activo hasta el fin del período.",
+        message,
         currentPeriodEnd: subscription.current_period_end ?? undefined,
       });
     } catch (error) {
@@ -131,12 +135,12 @@ export class SubscriptionController {
 
       res.json({
         subscription: {
-          plan:              subscription.plan,
-          status:            subscription.status,
-          currentPeriodEnd:  subscription.current_period_end,
+          plan: subscription.plan,
+          status: subscription.status,
+          currentPeriodEnd: subscription.current_period_end,
           gracePeriodEndsAt: subscription.grace_period_ends_at,
-          nextBillingDate:   subscription.current_period_end,
-          planToken:         subscription.dlocal_plan_token,
+          nextBillingDate: subscription.current_period_end,
+          planToken: subscription.dlocal_plan_token,
           subscriptionToken: subscription.dlocal_subscription_token,
         },
       });

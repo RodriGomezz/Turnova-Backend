@@ -5,6 +5,7 @@ import {
   shouldDegradeEndedCanceledSubscription,
   shouldDegradeExpiredGracePeriod,
 } from "../../domain/subscription-access";
+import { updateBusinessNetwork } from "../database/business-network";
 
 const INTERVAL_MS = 60 * 60 * 1000; // cada hora
 
@@ -28,7 +29,7 @@ async function downgradeBusinessToStarter(
   // subscription_downgraded_at permite a getBusinessStatus distinguir un Starter
   // "original" (nunca pagó) de uno degradado (suscripción vencida), bloqueando
   // al segundo para que no pueda seguir operando con plan gratuito.
-  await businessRepository.update(businessId, {
+  await updateBusinessNetwork(businessId, {
     plan: "starter",
     subscription_downgraded_at: now,
   });

@@ -4,6 +4,7 @@ import { IEmailService } from "../ports/IEmailService";
 import { Subscription, SubscriptionStatus } from "../../domain/entities/Subscription";
 import { logger } from "../../infrastructure/logger";
 import { PLAN_PRICES } from "../../domain/plan-prices";
+import { updateBusinessNetwork } from "../../infrastructure/database/business-network";
 
 /**
  * Payload real que dLocal Go envía al notification_url.
@@ -152,11 +153,19 @@ export class HandleWebhookUseCase {
         business.subscription_downgraded_at !== null;
 
       if (needsUpdate) {
-        await this.businessRepository.update(subscription.business_id, {
-          plan: subscription.plan,
-          trial_ends_at: null,
-          subscription_downgraded_at: null,
-        });
+        if (subscription.plan === "business") {
+          await updateBusinessNetwork(subscription.business_id, {
+            plan: "business",
+            trial_ends_at: null,
+            subscription_downgraded_at: null,
+          });
+        } else {
+          await this.businessRepository.update(subscription.business_id, {
+            plan: subscription.plan,
+            trial_ends_at: null,
+            subscription_downgraded_at: null,
+          });
+        }
       }
     }
 

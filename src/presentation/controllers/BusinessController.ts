@@ -31,6 +31,7 @@ export class BusinessController {
     try {
       const input = req.body as UpdateBusinessInput;
       const business = await this.businessRepository.update(req.businessId!, input);
+      invalidateByBusinessId(req.businessId!);
       res.json({ business });
     } catch (error) {
       next(error);
