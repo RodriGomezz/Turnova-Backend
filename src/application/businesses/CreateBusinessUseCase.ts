@@ -66,6 +66,7 @@ export class CreateBusinessUseCase {
       fotos_galeria: [],
       faq_items: [],
       custom_domain: null,
+      dias_anticipacion: 30,
     });
 
     try {

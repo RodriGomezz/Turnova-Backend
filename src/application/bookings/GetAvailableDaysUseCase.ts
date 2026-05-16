@@ -22,9 +22,6 @@ export interface GetAvailableDaysResult {
 }
 
 export class GetAvailableDaysUseCase {
-  /** Días máximos hacia adelante que se permiten reservar */
-  private static readonly MAX_DAYS_AHEAD = 7;
-
   constructor(
     private readonly businessRepository: IBusinessRepository,
     private readonly serviceRepository: IServiceRepository,
@@ -65,8 +62,9 @@ export class GetAvailableDaysUseCase {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const diasAnticipacion = business.dias_anticipacion ?? 30;
     const maxDate = new Date();
-    maxDate.setDate(maxDate.getDate() + GetAvailableDaysUseCase.MAX_DAYS_AHEAD);
+    maxDate.setDate(maxDate.getDate() + diasAnticipacion);
 
     const availableDays: string[] = [];
 

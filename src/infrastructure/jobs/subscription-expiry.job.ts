@@ -5,7 +5,7 @@ import {
   shouldDegradeEndedCanceledSubscription,
   shouldDegradeExpiredGracePeriod,
 } from "../../domain/subscription-access";
-import { updateBusinessNetwork } from "../database/business-network";
+import { updateBusinessNetwork, findNetworkBusinessIds } from "../database/business-network";
 
 const INTERVAL_MS = 60 * 60 * 1000; // cada hora
 
@@ -33,6 +33,18 @@ async function downgradeBusinessToStarter(
     plan: "starter",
     subscription_downgraded_at: now,
   });
+
+  // Desactivar sucursales extras: starter no tiene multi-sucursal.
+  // La primera (principal, por orden de creación) se mantiene activa.
+  const businessIds = await findNetworkBusinessIds(businessId);
+  const toDeactivate = businessIds.slice(1);
+  for (const id of toDeactivate) {
+    await businessRepository.update(id, { activo: false });
+    logger.info("Sucursal desactivada por degradación a Starter", {
+      businessId: id,
+      masterBusinessId: businessId,
+    });
+  }
 
   logger.info("Plan degradado a Starter por suscripción vencida", {
     businessId,

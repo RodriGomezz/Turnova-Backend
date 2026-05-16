@@ -5,6 +5,8 @@ import { Subscription, SubscriptionStatus } from "../../domain/entities/Subscrip
 import { logger } from "../../infrastructure/logger";
 import { PLAN_PRICES } from "../../domain/plan-prices";
 import { updateBusinessNetwork } from "../../infrastructure/database/business-network";
+import { findNetworkBusinessIds } from "../../infrastructure/database/business-network";
+import { PLAN_LIMITS } from "../../domain/plan-limits";
 
 /**
  * Payload real que dLocal Go envía al notification_url.
@@ -159,6 +161,10 @@ export class HandleWebhookUseCase {
             trial_ends_at: null,
             subscription_downgraded_at: null,
           });
+            await this.enforceMultiSucursalLimit(
+            subscription.business_id,
+            subscription.plan,
+          );
         } else {
           await this.businessRepository.update(subscription.business_id, {
             plan: subscription.plan,
@@ -188,6 +194,30 @@ export class HandleWebhookUseCase {
       invoiceId:       payload.order_id,
     });
   }
+
+  private async enforceMultiSucursalLimit(
+  seedBusinessId: string,
+  newPlan: string,
+): Promise<void> {
+  const limits = PLAN_LIMITS[newPlan];
+  if (limits?.multiSucursal) return; // business plan — sin restricción
+
+  const businessIds = await findNetworkBusinessIds(seedBusinessId);
+  if (businessIds.length <= 1) return; // solo una sucursal — nada que hacer
+
+  // Mantener activa solo la primera (la principal, por orden de creación)
+  // y desactivar el resto
+  const toDeactivate = businessIds.slice(1);
+
+  for (const businessId of toDeactivate) {
+    await this.businessRepository.update(businessId, { activo: false });
+    logger.info("Sucursal desactivada por downgrade de plan", {
+      businessId,
+      newPlan,
+      seedBusinessId,
+    });
+  }
+}
 
   private async handleExecutionDeclined(
     payload: DLocalGoWebhookPayload,

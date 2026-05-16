@@ -41,7 +41,7 @@ app.use(
       const baseDomain = process.env.BASE_DOMAIN ?? "kronu.pro";
       if (
         origin.match(
-          new RegExp(`^https://[a-z0-9-]+\\.${baseDomain.replace(".", "\\.")}$`),
+          new RegExp(`^https://[a-z0-9-]+\\.${baseDomain.replace(/\./g, "\\.")}$`),
         )
       ) {
         return callback(null, true);

@@ -8,6 +8,8 @@ import { getPlanLimits } from "../../domain/plan-limits";
 import { UpdateBusinessInput } from "../schemas/business.schema";
 import { invalidateUserCache } from "../middlewares/auth.middleware";
 import { invalidateByBusinessId } from "../../infrastructure/cache/public.cache";
+import { updateBusinessNetwork, findNetworkBusinessIds } from "../../infrastructure/database/business-network";
+
 
 export class BusinessController {
   constructor(
@@ -116,21 +118,32 @@ export class BusinessController {
     }
   };
 
-  reactivate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const userId = req.userId!;
-      const businessId = req.params["id"] as string;
+ reactivate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const userId = req.userId!;
+    const businessId = req.params["id"] as string;
 
-      await this.assertAccess(userId, businessId);
+    await this.assertAccess(userId, businessId);
 
-      await this.businessRepository.update(businessId, { activo: true });
-      invalidateByBusinessId(businessId);
-
-      res.json({ message: "Sucursal reactivada correctamente" });
-    } catch (error) {
-      next(error);
+    // Verificar que el plan actual permite multi-sucursal
+    const currentBusiness = await this.businessRepository.findById(req.businessId!);
+    if (!currentBusiness) throw new NotFoundError("Negocio");
+    const limits = getPlanLimits(currentBusiness.plan);
+    if (!limits.multiSucursal) {
+      throw new AppError(
+        "Tu plan actual no permite múltiples sucursales. Upgradeá a Business para reactivarla.",
+        403,
+      );
     }
-  };
+
+    await this.businessRepository.update(businessId, { activo: true });
+    invalidateByBusinessId(businessId);
+
+    res.json({ message: "Sucursal reactivada correctamente" });
+  } catch (error) {
+    next(error);
+  }
+};
 
   deleteBranch = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

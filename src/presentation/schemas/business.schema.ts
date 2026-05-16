@@ -35,6 +35,7 @@ export const updateBusinessSchema = z.object({
   horario_texto: z.string().max(200).nullable().optional(),
   fotos_galeria: z.array(z.string().url()).max(8).nullable().optional(),
   faq_items: z.array(faqItemSchema).max(8).nullable().optional(),
+  dias_anticipacion: z.number().int().min(1).max(365).optional(), 
 });
 
 export type UpdateBusinessInput = z.infer<typeof updateBusinessSchema>;
