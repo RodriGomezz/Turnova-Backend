@@ -46,5 +46,7 @@ export interface Business {
   onboarding_completed: boolean;
   /** Fecha en que la suscripción fue degradada a Starter por vencimiento o gracia expirada. Null si nunca tuvo suscripción pagada. */
   subscription_downgraded_at: string | null;
-   dias_anticipacion: number;
+  dias_anticipacion: number;
+  ciudad: string | null;
+  pais:   string | null,
 }

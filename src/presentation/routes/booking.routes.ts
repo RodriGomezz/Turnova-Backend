@@ -54,6 +54,8 @@ const PUBLIC_SELECT = [
   "plan",
   "trial_ends_at",
   "activo",
+  "ciudad",
+  "pais",
 ].join(", ");
 
 async function getPublicBusinessData(slug: string) {

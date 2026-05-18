@@ -67,6 +67,8 @@ export class CreateBusinessUseCase {
       faq_items: [],
       custom_domain: null,
       dias_anticipacion: 30,
+      ciudad: null,
+      pais: null,
     });
 
     try {
