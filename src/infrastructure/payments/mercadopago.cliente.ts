@@ -1,27 +1,23 @@
 /**
  * MercadoPago Client — implementación de IPaymentProvider
  *
- * Flujo correcto para suscripciones con plan asociado:
+ * FLUJO CORRECTO para checkout hosted (sin card_token_id):
  *
- *   1. getOrCreatePlan por tier (starter/pro/business) → preapproval_plan compartido
- *      El plan es uno por tier — todos los usuarios del mismo plan comparten el mismo
- *      preapproval_plan_id. El plan define el precio y frecuencia.
+ *   Suscripción SIN plan asociado, status: "pending"
+ *   ─────────────────────────────────────────────────
+ *   1. POST /preapproval con los datos del plan embebidos (reason, auto_recurring)
+ *      y status: "pending" → MP devuelve un init_point navegable.
+ *   2. Redirigir al usuario a init_point → completa el pago en la página de MP.
+ *   3. MP envía webhook type: "subscription_preapproval" cuando cambia el estado.
+ *   4. Cuando el usuario paga, status pasa a "authorized" → activar en nuestra BD.
  *
- *   2. Crear preapproval individual → vincula al usuario con el plan.
- *      Incluye external_reference = nuestro subscriptionId interno (UUID).
- *      Devuelve su propio init_point para redirigir al usuario.
- *
- *   3. El usuario completa el checkout en MP → el preapproval queda en "authorized"
- *      cuando MP procesa el primer cobro.
- *
- *   4. MP envía webhooks:
- *      - type: "subscription_preapproval" → cambios de estado del preapproval
- *      - type: "payment" → cobros ejecutados (con external_reference en el pago)
+ *   ⚠️ El flujo CON plan asociado (preapproval_plan + preapproval) requiere
+ *   card_token_id (tarjeta ya tokenizada por el frontend via Bricks/Checkout API).
+ *   No genera un init_point navegable — no sirve para hosted checkout.
  *
  * Docs:
- *   https://www.mercadopago.com/developers/es/docs/subscriptions/integration-configuration/subscription-associated-plan
- *   https://www.mercadopago.com/developers/es/reference/subscriptions/_preapproval_plan/post
  *   https://www.mercadopago.com/developers/es/reference/subscriptions/_preapproval/post
+ *   https://www.mercadopago.com/developers/es/docs/subscriptions/integration-configuration/subscription-without-plan
  */
 
 import { logger } from "../logger";
@@ -36,43 +32,29 @@ import { PLAN_PRICES, PLAN_NAMES } from "../../domain/plan-prices";
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
-const MP_API_BASE      = "https://api.mercadopago.com";
-const CURRENCY_ID      = "UYU";
-const FREQUENCY        = 1;
-const FREQUENCY_TYPE   = "months";
+const MP_API_BASE    = "https://api.mercadopago.com";
+const CURRENCY_ID    = "UYU";
+const FREQUENCY      = 1;
+const FREQUENCY_TYPE = "months";
 
 // ── Tipos internos ────────────────────────────────────────────────────────────
 
-interface MPPreapprovalPlan {
+interface MPPreapproval {
   id: string;
-  reason: string;
-  status: "active" | "cancelled";
+  reason?: string;
+  external_reference?: string;
+  status: "pending" | "authorized" | "paused" | "cancelled";
   init_point: string;
-  back_url: string;
-  auto_recurring: {
+  sandbox_init_point?: string;
+  payer_id?: number;
+  payer_email?: string;
+  next_payment_date?: string;
+  auto_recurring?: {
     frequency: number;
     frequency_type: string;
     transaction_amount: number;
     currency_id: string;
   };
-  date_created: string;
-  last_modified: string;
-}
-
-interface MPPreapprovalPlanSearchResult {
-  paging: { offset: number; limit: number; total: number };
-  results: MPPreapprovalPlan[];
-}
-
-interface MPPreapproval {
-  id: string;
-  preapproval_plan_id?: string;
-  external_reference?: string;
-  status: "pending" | "authorized" | "paused" | "cancelled";
-  init_point: string;
-  payer_id?: number;
-  payer_email?: string;
-  next_payment_date?: string;
   date_created: string;
   last_modified: string;
 }
@@ -138,8 +120,8 @@ async function parseResponse<T>(
   }
 
   if (!res.ok) {
-    const err = body as MPErrorResponse;
-    const cause = err.cause?.map((c) => `${c.code}: ${c.description}`).join("; ");
+    const err    = body as MPErrorResponse;
+    const cause  = err.cause?.map((c) => `${c.code}: ${c.description}`).join("; ");
     const message = err.message ?? err.error ?? "Error desconocido";
     logger.error(`MP ${operation} error`, { ...context, status: res.status, message, cause });
     throw new Error(`MercadoPago [${res.status}]: ${message}${cause ? ` — ${cause}` : ""}`);
@@ -148,246 +130,27 @@ async function parseResponse<T>(
   return body as T;
 }
 
-// ── Plan helpers ──────────────────────────────────────────────────────────────
-
-async function findExistingPlan(
-  planName: string,
-  amount: number,
-): Promise<MPPreapprovalPlan | null> {
-  // Endpoint correcto: GET /preapproval_plan (sin /search)
-  // Docs: https://www.mercadopago.com/developers/es/reference/subscriptions/_preapproval_plan/get
-  const url = new URL(`${MP_API_BASE}/preapproval_plan`);
-  url.searchParams.set("status", "active");
-  url.searchParams.set("limit", "50");
-  url.searchParams.set("offset", "0");
-
-  const res = await fetch(url.toString(), { headers: mpHeaders() });
-
-  if (!res.ok) {
-    logger.warn("MP: búsqueda de planes falló, se creará uno nuevo", {
-      status: res.status,
-    });
-    return null;
-  }
-
-  const data = (await res.json()) as MPPreapprovalPlanSearchResult;
-
-  // results puede ser un array vacío si no hay planes — proteger contra undefined
-  const results = Array.isArray(data.results) ? data.results : [];
-
-  return (
-    results.find(
-      (p) =>
-        p.status === "active" &&
-        p.reason === planName &&
-        p.auto_recurring.currency_id === CURRENCY_ID &&
-        Number(p.auto_recurring.transaction_amount) === amount &&
-        p.auto_recurring.frequency === FREQUENCY &&
-        p.auto_recurring.frequency_type === FREQUENCY_TYPE,
-    ) ?? null
-  );
-}
-
-/**
- * MP exige que back_url sea una URL absoluta con dominio real (no localhost, no IPs).
- * Esta función la sanitiza antes de enviarla a la API.
- * En sandbox, MP acepta cualquier URL https:// válida — usamos una de fallback pública.
- */
-function sanitizeBackUrl(raw: string): string {
-  // Log siempre el valor raw para diagnóstico
-  logger.info("MP: back_url recibida", { raw });
-
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    logger.warn("MP: back_url no es una URL válida, usando fallback", { raw });
-    return getMPFallbackUrl();
-  }
-
-  const isLocal =
-    parsed.hostname === "localhost" ||
-    parsed.hostname === "127.0.0.1" ||
-    /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(parsed.hostname) ||
-    parsed.hostname.endsWith(".local") ||
-    parsed.hostname.endsWith(".localhost");
-
-  if (isLocal) {
-    const fallback = getMPFallbackUrl();
-    logger.info("MP: back_url es localhost, usando fallback", { raw, fallback });
-    return fallback;
-  }
-
-  // MP solo acepta http:// o https://
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    logger.warn("MP: back_url con protocolo inválido, usando fallback", { raw });
-    return getMPFallbackUrl();
-  }
-
-  return raw;
-}
-
-function getMPFallbackUrl(): string {
-  // Prioridad: MP_DEV_BACK_URL → MP_BACK_URL_FALLBACK → URL pública hardcodeada de MP
-  const envFallback = process.env.MP_DEV_BACK_URL ?? process.env.FRONTEND_URL;
-  if (envFallback) {
-    try {
-      const p = new URL(envFallback);
-      const isLocal =
-        p.hostname === "localhost" ||
-        p.hostname === "127.0.0.1" ||
-        p.hostname.endsWith(".local");
-      if (!isLocal) return envFallback;
-    } catch {
-      // env mal formado, usar hardcoded
-    }
-  }
-  // Fallback absoluto: página de MP que siempre existe (válida para sandbox y prod)
-  return "https://www.mercadopago.com.uy";
-}
-
-async function ensurePlan(
-  plan: SubscriptionPlan,
-  backUrl: string,
-): Promise<MPPreapprovalPlan> {
-  const amount   = PLAN_PRICES[plan];
-  const planName = PLAN_NAMES[plan];
-  const safeBackUrl = sanitizeBackUrl(backUrl);
-
-  const existing = await findExistingPlan(planName, amount);
-
-  if (existing) {
-    logger.info("MP: plan existente encontrado", { planId: existing.id, plan });
-
-    // Actualizar back_url si cambió (p.ej. de localhost → producción)
-    if (existing.back_url !== backUrl) {
-      try {
-        const patchRes = await fetch(`${MP_API_BASE}/preapproval_plan/${existing.id}`, {
-          method:  "PUT",
-          headers: mpHeaders(idemKey("patchPlan", existing.id)),
-          body:    JSON.stringify({ back_url: backUrl }),
-        });
-        if (patchRes.ok) {
-          const patched = (await patchRes.json()) as MPPreapprovalPlan;
-          logger.info("MP: back_url del plan actualizada", { planId: existing.id });
-          return patched;
-        }
-      } catch (err) {
-        logger.warn("MP: no se pudo actualizar back_url del plan", {
-          planId: existing.id,
-          err,
-        });
-      }
-    }
-
-    return existing;
-  }
-
-  // Crear nuevo plan
-  logger.info("MP: creando nuevo plan", { plan, amount });
-
-  const createRes = await fetch(`${MP_API_BASE}/preapproval_plan`, {
-    method:  "POST",
-    headers: mpHeaders(idemKey("createPlan", plan)),
-    body: JSON.stringify({
-      reason: planName,
-      auto_recurring: {
-        frequency:          FREQUENCY,
-        frequency_type:     FREQUENCY_TYPE,
-        transaction_amount: amount,
-        currency_id:        CURRENCY_ID,
-      },
-      back_url: backUrl,
-    }),
-  });
-
-  const created = await parseResponse<MPPreapprovalPlan>(createRes, "createPlan", { plan });
-
-  logger.info("MP: plan creado", { planId: created.id, initPoint: created.init_point });
-  return created;
-}
-
-// ── Preapproval individual ────────────────────────────────────────────────────
-
-async function createPreapproval(
-  planId: string,
-  externalReference: string,
-  payerEmail: string | undefined,
-  backUrl: string,
-): Promise<MPPreapproval> {
-  /**
-   * POST /preapproval
-   * Docs: https://www.mercadopago.com/developers/es/reference/subscriptions/_preapproval/post
-   *
-   * Campos relevantes:
-   *   - preapproval_plan_id: el plan al que se suscribe
-   *   - external_reference:  nuestro UUID interno → correlaciona webhooks
-   *   - payer_email:         email del pagador (campo raíz, no dentro de payer{})
-   *   - back_url:            URL a donde MP redirige tras el checkout
-   *   - status: "pending"   → el usuario aún no autorizó el débito
-   */
-  const body: Record<string, unknown> = {
-    preapproval_plan_id: planId,
-    external_reference:  externalReference,
-    back_url:            backUrl,
-    status:              "pending",
-  };
-
-  // payer_email es un campo raíz en la API de MP (no anidado en payer:{})
-  if (payerEmail) body["payer_email"] = payerEmail;
-
-  logger.info("MP: creando preapproval (suscripción individual)", {
-    planId,
-    externalReference,
-    hasPayerEmail: !!payerEmail,
-  });
-
-  const res = await fetch(`${MP_API_BASE}/preapproval`, {
-    method:  "POST",
-    headers: mpHeaders(idemKey("createPreapproval", externalReference)),
-    body:    JSON.stringify(body),
-  });
-
-  const preapproval = await parseResponse<MPPreapproval>(res, "createPreapproval", {
-    planId,
-    externalReference,
-  });
-
-  logger.info("MP: preapproval creado", {
-    preapprovalId: preapproval.id,
-    initPoint:     preapproval.init_point,
-    externalReference,
-  });
-
-  return preapproval;
-}
-
-// ── Cliente MercadoPago (implementa IPaymentProvider) ─────────────────────────
+// ── Cliente MercadoPago ───────────────────────────────────────────────────────
 
 export const mercadoPagoClient: IPaymentProvider = {
 
   /**
-   * 1. Obtiene o crea el preapproval_plan compartido del tier.
-   * 2. Crea un preapproval individual para este usuario con external_reference.
-   * 3. Devuelve el init_point del preapproval (no del plan) como subscribeUrl.
+   * Crea un preapproval SIN plan asociado con status "pending".
+   * Este es el único flujo que genera un init_point navegable
+   * (hosted checkout de MP) sin requerir card_token_id del frontend.
    *
-   * El external_reference es el UUID de nuestra BD — cuando MP envíe el webhook
-   * de pago, podremos encontrar la suscripción directamente sin joins.
+   * El external_reference = subscriptionId de nuestra BD
+   * permite correlacionar el webhook con la suscripción interna.
    */
   async getOrCreatePlan(
     plan: SubscriptionPlan,
-    _notificationUrl: string,  // Se configura en Dashboard MP, no vía API de plan
-    _successUrl: string,       // MP no lo acepta en preapproval_plan (solo back_url)
+    _notificationUrl: string,   // Se configura en Dashboard MP, no via API
+    _successUrl: string,        // MP no acepta success_url en preapproval sin plan
     backUrl: string,
-    _errorUrl: string,         // MP no tiene error_url
+    _errorUrl: string,          // MP no tiene error_url
     externalReference?: string,
     payerEmail?: string,
   ): Promise<CreateCheckoutResult> {
-
-    // Paso 1: plan compartido
-    const mpPlan = await ensurePlan(plan, backUrl);
-
-    // Paso 2: preapproval individual (requiere el externalReference)
     if (!externalReference) {
       throw new Error(
         "MP getOrCreatePlan: externalReference es requerido. " +
@@ -395,24 +158,68 @@ export const mercadoPagoClient: IPaymentProvider = {
       );
     }
 
-    const preapproval = await createPreapproval(
-      mpPlan.id,
+    const amount   = PLAN_PRICES[plan];
+    const planName = PLAN_NAMES[plan];
+
+    logger.info("MP: creando preapproval (suscripción sin plan asociado)", {
+      plan,
+      amount,
       externalReference,
-      payerEmail,
-      backUrl,
-    );
+      hasPayerEmail: !!payerEmail,
+    });
+
+    /**
+     * POST /preapproval — suscripción sin plan asociado
+     *
+     * Al no enviar preapproval_plan_id, MP genera un init_point
+     * navegable donde el usuario ingresa su tarjeta.
+     * status: "pending" → el usuario aún no autorizó el débito.
+     */
+    const body: Record<string, unknown> = {
+      reason:             planName,
+      external_reference: externalReference,
+      payer_email:        payerEmail ?? "",
+      auto_recurring: {
+        frequency:          FREQUENCY,
+        frequency_type:     FREQUENCY_TYPE,
+        transaction_amount: amount,
+        currency_id:        CURRENCY_ID,
+      },
+      back_url: backUrl,
+      status:   "pending",
+    };
+
+    const res = await fetch(`${MP_API_BASE}/preapproval`, {
+      method:  "POST",
+      headers: mpHeaders(idemKey("createPreapproval", externalReference)),
+      body:    JSON.stringify(body),
+    });
+
+    const preapproval = await parseResponse<MPPreapproval>(res, "createPreapproval", {
+      plan,
+      externalReference,
+    });
+
+    logger.info("MP: preapproval creado exitosamente", {
+      preapprovalId: preapproval.id,
+      initPoint:     preapproval.init_point,
+      externalReference,
+      plan,
+    });
 
     return {
-      planToken:    mpPlan.id,            // preapproval_plan_id → se guarda en dlocal_plan_token
-      subscribeUrl: preapproval.init_point, // URL del checkout del usuario específico
-      dlocalPlanId: null,                 // No aplica en MP
+      // planToken guarda el preapproval_id — lo necesitamos para cancelar
+      planToken:    preapproval.id,
+      subscribeUrl: preapproval.init_point,
+      dlocalPlanId: null,
     };
   },
 
+  /**
+   * Cancela un preapproval via PUT /preapproval/{id} con status: "cancelled".
+   * El preapproval_id se almacena en dlocal_plan_token (campo planToken del resultado).
+   */
   async cancelSubscription(_planId: number, subscriptionId: number): Promise<void> {
-    // En MP, el subscriptionId almacenado en dlocal_subscription_id es el preapproval_id
-    // Lo guardamos como number por compatibilidad de interfaz, pero MP usa strings.
-    // Ver: HandleMPWebhookUseCase guarda el preapproval_id en dlocal_subscription_token.
     const preapprovalId = String(subscriptionId);
 
     logger.info("MP: cancelando preapproval", { preapprovalId });
