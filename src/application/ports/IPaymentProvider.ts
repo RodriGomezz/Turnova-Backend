@@ -1,16 +1,12 @@
 import { SubscriptionPlan } from "../../domain/entities/Subscription";
 
-// ── Resultado de crear un checkout de suscripción en dLocal Go ────────────────
 export interface CreateCheckoutResult {
-  /** plan_token devuelto por dLocal Go al crear el plan (si se creó ahora) */
   planToken: string;
-  /** URL a la que redirigir al usuario para que ingrese su tarjeta */
   subscribeUrl: string;
-  /** ID interno del plan en dLocal Go */
-  dlocalPlanId: number;
+  /** Solo relevante en dLocal Go. En MP siempre es null. */
+  dlocalPlanId: number | null;
 }
 
-// ── Detalle de una ejecución (cobro) de suscripción ──────────────────────────
 export interface ExecutionDetails {
   executionId: number;
   orderId: string;
@@ -19,7 +15,6 @@ export interface ExecutionDetails {
   amountPaid: number;
 }
 
-// ── Detalle de una suscripción ────────────────────────────────────────────────
 export interface SubscriptionDetails {
   subscriptionId: number;
   subscriptionToken: string;
@@ -31,8 +26,15 @@ export interface SubscriptionDetails {
 
 export interface IPaymentProvider {
   /**
-   * Obtiene (o crea si no existe) el plan en dLocal Go y devuelve la
-   * subscribe_url para redirigir al usuario al checkout hosted.
+   * Obtiene (o crea) el plan/checkout del proveedor y devuelve la URL
+   * para redirigir al usuario.
+   *
+   * @param externalReference - ID interno de la suscripción en nuestra BD.
+   *   MercadoPago lo usa como external_reference en el preapproval para
+   *   correlacionar los webhooks de pagos con nuestra BD.
+   *   dLocal Go lo ignora (usa query param ?external_id= en la subscribeUrl).
+   *
+   * @param payerEmail - Email del pagador para pre-rellenar el checkout.
    */
   getOrCreatePlan(
     plan: SubscriptionPlan,
@@ -40,24 +42,11 @@ export interface IPaymentProvider {
     successUrl: string,
     backUrl: string,
     errorUrl: string,
+    externalReference?: string,
+    payerEmail?: string,
   ): Promise<CreateCheckoutResult>;
 
-  /**
-   * Cancela una suscripción activa en dLocal Go.
-   * planId y subscriptionId son los IDs numéricos de dLocal Go.
-   */
   cancelSubscription(planId: number, subscriptionId: number): Promise<void>;
-
-  /**
-   * Consulta el estado de una suscripción en dLocal Go.
-   */
   getSubscription(planId: number, subscriptionId: number): Promise<SubscriptionDetails>;
-
-  /**
-   * Consulta una ejecución puntual (cobro) de una suscripción.
-   */
-  getExecution(
-    subscriptionId: number,
-    executionId: string,
-  ): Promise<ExecutionDetails>;
+  getExecution(subscriptionId: number, executionId: string): Promise<ExecutionDetails>;
 }

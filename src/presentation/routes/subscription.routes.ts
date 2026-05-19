@@ -9,11 +9,28 @@ import {
 
 const router: Router = Router();
 
-// ── Webhook — sin auth, con verificación HMAC propia ─────────────────────────
-// IMPORTANTE: debe recibir el body como Buffer para verificar la firma.
-// En app.ts registrar antes de express.json():
-//   app.use('/api/subscriptions/dlocal', express.raw({ type: 'application/json' }));
-router.post("/dlocal", webhookController.handleDLocal);
+// ── Webhooks — sin auth, con verificación de firma propia ────────────────────
+
+/**
+ * MercadoPago webhook — ACTIVO
+ * Recibe notificaciones de pagos y suscripciones de MP.
+ * Firma verificada via x-signature + MP_WEBHOOK_SECRET.
+ * NO necesita raw buffer (MP firma campos del payload, no el body raw).
+ *
+ * Configurar en el Dashboard de MP → Tus integraciones → Webhooks:
+ *   URL: https://tudominio.com/api/subscriptions/mercadopago
+ *   Tópicos: subscription_preapproval_plan, subscription_preapproval, payments
+ */
+router.post("/mercadopago", webhookController.handleMercadoPago);
+
+/**
+ * dLocal Go webhook — DESACTIVADO (ruta comentada).
+ * Descomentar para reactivar. Requiere raw body (ver app.ts).
+ *
+ * IMPORTANTE: Si se reactiva dLocal, también descomentar en app.ts:
+ *   app.use('/api/subscriptions/dlocal', express.raw({ type: 'application/json' }));
+ */
+// router.post("/dlocal", webhookController.handleDLocal);
 
 // ── Panel — protegidas ────────────────────────────────────────────────────────
 router.use(authMiddleware);
@@ -22,8 +39,5 @@ router.get("/", subscriptionController.get);
 router.get("/history", subscriptionController.getHistory);
 router.post("/create", validate(createSubscriptionSchema), subscriptionController.create);
 router.post("/cancel", validate(cancelSubscriptionSchema), subscriptionController.cancel);
-
-// Nota: los reembolsos con dLocal Go se gestionan desde el dashboard de dLocal Go,
-// no mediante una llamada a la API desde el backend.
 
 export default router;

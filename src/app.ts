@@ -53,26 +53,30 @@ app.use(
   }),
 );
 
-// ── Webhook dLocal — debe recibir raw Buffer ANTES de express.json() ──────────
-// dLocal firma el payload con HMAC-SHA256; necesitamos el body sin parsear
-app.use(
-  "/api/subscriptions/dlocal",
-  express.raw({ type: "application/json" }),
-);
+// ── Webhook dLocal Go — DESACTIVADO ──────────────────────────────────────────
+// Si se reactiva dLocal, descomentar estas líneas:
+// app.use(
+//   "/api/subscriptions/dlocal",
+//   express.raw({ type: "application/json" }),
+// );
 
-// ── Body parsing (resto de rutas) ─────────────────────────────────────────────
+// ── Webhook MercadoPago — usa JSON normal (no raw buffer) ─────────────────────
+// MP verifica la firma via campos del payload, no via el body raw.
+// express.json() más abajo maneja el parsing correctamente.
+
+// ── Body parsing ──────────────────────────────────────────────────────────────
 app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ limit: "10kb", extended: true }));
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
 app.use("/api/bookings/public", publicLimiter);
-app.use("/api/auth", authLimiter);
-app.use("/api/barbers",        generalLimiter);
-app.use("/api/services",       generalLimiter);
-app.use("/api/schedules",      generalLimiter);
-app.use("/api/business",       generalLimiter);
-app.use("/api/bookings/panel", generalLimiter);
-app.use("/api/subscriptions",  generalLimiter);
+app.use("/api/auth",          authLimiter);
+app.use("/api/barbers",       generalLimiter);
+app.use("/api/services",      generalLimiter);
+app.use("/api/schedules",     generalLimiter);
+app.use("/api/business",      generalLimiter);
+app.use("/api/bookings/panel",generalLimiter);
+app.use("/api/subscriptions", generalLimiter);
 
 // ── Logger ────────────────────────────────────────────────────────────────────
 app.use(requestLogger);

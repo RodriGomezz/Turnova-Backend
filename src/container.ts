@@ -4,6 +4,12 @@
  * Único lugar de la aplicación donde se instancian dependencias concretas.
  * Los controladores y use cases reciben interfaces — solo aquí saben qué
  * implementación concreta se usa.
+ *
+ * PROVEEDOR DE PAGOS ACTIVO: MercadoPago
+ * Para reactivar dLocal Go:
+ *   1. Cambiar `mercadoPagoClient` → `dlocalGoClient` en las líneas marcadas
+ *   2. Descomentar la ruta /dlocal en subscription.routes.ts
+ *   3. Descomentar el middleware raw body en app.ts
  */
 
 // ── Infraestructura ───────────────────────────────────────────────────────────
@@ -17,7 +23,15 @@ import { UserRepository } from "./infrastructure/database/UserRepository";
 import { UserBusinessAccessRepository } from "./infrastructure/database/UserBusinessAccessRepository";
 import { SubscriptionRepository } from "./infrastructure/database/SubscriptionRepository";
 import { EmailService } from "./application/email/email.service";
-import { dlocalGoClient } from "./infrastructure/payments/dlocalgo.client";
+
+// ── Proveedores de pago ───────────────────────────────────────────────────────
+// ACTIVO: MercadoPago
+import { mercadoPagoClient } from "./infrastructure/payments/mercadopago.cliente";
+// DESACTIVADO: dLocal Go (mantener import para reactivar rápidamente)
+import { dlocalGoClient as _dlocalGoClient } from "./infrastructure/payments/dlocalgo.client";
+
+// El proveedor activo — cambiar aquí para switchar entre proveedores
+const activePaymentProvider = mercadoPagoClient;
 
 // ── Use Cases ─────────────────────────────────────────────────────────────────
 import { GetAvailableSlotsUseCase } from "./application/bookings/GetAvailableSlotsUseCase";
@@ -28,6 +42,7 @@ import { CreateBusinessUseCase } from "./application/businesses/CreateBusinessUs
 import { CreateBarberUseCase } from "./application/barbers/CreateBarberUseCase";
 import { CreateSubscriptionUseCase } from "./application/subscriptions/CreateSubscriptionUseCase";
 import { HandleWebhookUseCase } from "./application/subscriptions/HandleWebhookUseCase";
+import { HandleMPWebhookUseCase } from "./application/subscriptions/Handlempwebhookusecase";
 import { CreateServiceUseCase } from "./application/services/CreateServiceUseCase";
 
 // ── Controllers ───────────────────────────────────────────────────────────────
@@ -39,19 +54,19 @@ import { SubscriptionController } from "./presentation/controllers/SubscriptionC
 import { WebhookController } from "./presentation/controllers/WebhookController";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Repositories (singletons — una instancia por proceso)
+// Repositories (singletons)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const bookingRepository = new BookingRepository();
-const businessRepository = new BusinessRepository();
-const barberRepository = new BarberRepository();
-const serviceRepository = new ServiceRepository();
-const scheduleRepository = new ScheduleRepository();
-const blockedDateRepository = new BlockedDateRepository();
-const userRepository = new UserRepository();
-const userBusinessAccessRepository = new UserBusinessAccessRepository();
-const subscriptionRepository = new SubscriptionRepository();
-const emailService = new EmailService();
+const bookingRepository           = new BookingRepository();
+const businessRepository          = new BusinessRepository();
+const barberRepository            = new BarberRepository();
+const serviceRepository           = new ServiceRepository();
+const scheduleRepository          = new ScheduleRepository();
+const blockedDateRepository       = new BlockedDateRepository();
+const userRepository              = new UserRepository();
+const userBusinessAccessRepository= new UserBusinessAccessRepository();
+const subscriptionRepository      = new SubscriptionRepository();
+const emailService                = new EmailService();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Use Cases
@@ -90,18 +105,23 @@ export const createBusinessUseCase = new CreateBusinessUseCase(
 );
 
 export const createBarberUseCase = new CreateBarberUseCase(barberRepository);
-
 export const createServiceUseCase = new CreateServiceUseCase(serviceRepository);
 
 const createSubscriptionUseCase = new CreateSubscriptionUseCase(
   subscriptionRepository,
   businessRepository,
-  dlocalGoClient,
+  activePaymentProvider,   // ← MP activo
 );
 
-// HandleWebhookUseCase ya no necesita IPaymentProvider —
-// dLocal Go gestiona los cobros automáticamente.
-const handleWebhookUseCase = new HandleWebhookUseCase(
+// HandleWebhookUseCase (dLocal) — instanciado pero la ruta está desactivada
+const handleDLocalWebhookUseCase = new HandleWebhookUseCase(
+  subscriptionRepository,
+  businessRepository,
+  emailService,
+);
+
+// HandleMPWebhookUseCase — activo
+const handleMPWebhookUseCase = new HandleMPWebhookUseCase(
   subscriptionRepository,
   businessRepository,
   emailService,
@@ -142,10 +162,13 @@ export const serviceController = new ServiceController(
 
 export const subscriptionController = new SubscriptionController(
   subscriptionRepository,
-  dlocalGoClient,
+  activePaymentProvider,   // ← MP activo
   createSubscriptionUseCase,
   userRepository,
   businessRepository,
 );
 
-export const webhookController = new WebhookController(handleWebhookUseCase);
+export const webhookController = new WebhookController(
+  handleDLocalWebhookUseCase,   // dLocal preservado
+  handleMPWebhookUseCase,       // MP activo
+);
