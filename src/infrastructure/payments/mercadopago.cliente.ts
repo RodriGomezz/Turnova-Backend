@@ -154,14 +154,17 @@ async function findExistingPlan(
   planName: string,
   amount: number,
 ): Promise<MPPreapprovalPlan | null> {
-  const url = new URL(`${MP_API_BASE}/preapproval_plan/search`);
+  // Endpoint correcto: GET /preapproval_plan (sin /search)
+  // Docs: https://www.mercadopago.com/developers/es/reference/subscriptions/_preapproval_plan/get
+  const url = new URL(`${MP_API_BASE}/preapproval_plan`);
   url.searchParams.set("status", "active");
   url.searchParams.set("limit", "50");
+  url.searchParams.set("offset", "0");
 
   const res = await fetch(url.toString(), { headers: mpHeaders() });
 
   if (!res.ok) {
-    logger.warn("MP: búsqueda de planes falló, se intentará crear uno nuevo", {
+    logger.warn("MP: búsqueda de planes falló, se creará uno nuevo", {
       status: res.status,
     });
     return null;
@@ -169,8 +172,11 @@ async function findExistingPlan(
 
   const data = (await res.json()) as MPPreapprovalPlanSearchResult;
 
+  // results puede ser un array vacío si no hay planes — proteger contra undefined
+  const results = Array.isArray(data.results) ? data.results : [];
+
   return (
-    data.results.find(
+    results.find(
       (p) =>
         p.status === "active" &&
         p.reason === planName &&
@@ -182,12 +188,71 @@ async function findExistingPlan(
   );
 }
 
+/**
+ * MP exige que back_url sea una URL absoluta con dominio real (no localhost, no IPs).
+ * Esta función la sanitiza antes de enviarla a la API.
+ * En sandbox, MP acepta cualquier URL https:// válida — usamos una de fallback pública.
+ */
+function sanitizeBackUrl(raw: string): string {
+  // Log siempre el valor raw para diagnóstico
+  logger.info("MP: back_url recibida", { raw });
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    logger.warn("MP: back_url no es una URL válida, usando fallback", { raw });
+    return getMPFallbackUrl();
+  }
+
+  const isLocal =
+    parsed.hostname === "localhost" ||
+    parsed.hostname === "127.0.0.1" ||
+    /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(parsed.hostname) ||
+    parsed.hostname.endsWith(".local") ||
+    parsed.hostname.endsWith(".localhost");
+
+  if (isLocal) {
+    const fallback = getMPFallbackUrl();
+    logger.info("MP: back_url es localhost, usando fallback", { raw, fallback });
+    return fallback;
+  }
+
+  // MP solo acepta http:// o https://
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    logger.warn("MP: back_url con protocolo inválido, usando fallback", { raw });
+    return getMPFallbackUrl();
+  }
+
+  return raw;
+}
+
+function getMPFallbackUrl(): string {
+  // Prioridad: MP_DEV_BACK_URL → MP_BACK_URL_FALLBACK → URL pública hardcodeada de MP
+  const envFallback = process.env.MP_DEV_BACK_URL ?? process.env.FRONTEND_URL;
+  if (envFallback) {
+    try {
+      const p = new URL(envFallback);
+      const isLocal =
+        p.hostname === "localhost" ||
+        p.hostname === "127.0.0.1" ||
+        p.hostname.endsWith(".local");
+      if (!isLocal) return envFallback;
+    } catch {
+      // env mal formado, usar hardcoded
+    }
+  }
+  // Fallback absoluto: página de MP que siempre existe (válida para sandbox y prod)
+  return "https://www.mercadopago.com.uy";
+}
+
 async function ensurePlan(
   plan: SubscriptionPlan,
   backUrl: string,
 ): Promise<MPPreapprovalPlan> {
   const amount   = PLAN_PRICES[plan];
   const planName = PLAN_NAMES[plan];
+  const safeBackUrl = sanitizeBackUrl(backUrl);
 
   const existing = await findExistingPlan(planName, amount);
 
@@ -251,12 +316,15 @@ async function createPreapproval(
   backUrl: string,
 ): Promise<MPPreapproval> {
   /**
-   * El preapproval es la instancia de suscripción del usuario.
-   * - external_reference: nuestro subscriptionId interno (UUID) → correlaciona webhooks
-   * - payer_email: pre-rellena el campo email en el checkout de MP
-   * - status: "pending" → el usuario aún no autorizó el débito
+   * POST /preapproval
+   * Docs: https://www.mercadopago.com/developers/es/reference/subscriptions/_preapproval/post
    *
-   * MP devuelve init_point: URL del checkout hosted para este usuario específico.
+   * Campos relevantes:
+   *   - preapproval_plan_id: el plan al que se suscribe
+   *   - external_reference:  nuestro UUID interno → correlaciona webhooks
+   *   - payer_email:         email del pagador (campo raíz, no dentro de payer{})
+   *   - back_url:            URL a donde MP redirige tras el checkout
+   *   - status: "pending"   → el usuario aún no autorizó el débito
    */
   const body: Record<string, unknown> = {
     preapproval_plan_id: planId,
@@ -265,11 +333,13 @@ async function createPreapproval(
     status:              "pending",
   };
 
-  if (payerEmail) body.payer_email = payerEmail;
+  // payer_email es un campo raíz en la API de MP (no anidado en payer:{})
+  if (payerEmail) body["payer_email"] = payerEmail;
 
   logger.info("MP: creando preapproval (suscripción individual)", {
     planId,
     externalReference,
+    hasPayerEmail: !!payerEmail,
   });
 
   const res = await fetch(`${MP_API_BASE}/preapproval`, {
