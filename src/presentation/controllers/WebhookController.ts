@@ -6,7 +6,7 @@ import {
 import {
   HandleMPWebhookUseCase,
   MPWebhookPayload,
-} from "../../application/subscriptions/Handlempwebhookusecase";
+} from "../../application/subscriptions/HandleMPWebhookUseCase";
 import { AppError } from "../../domain/errors";
 import { logger } from "../../infrastructure/logger";
 import crypto from "crypto";
@@ -67,7 +67,7 @@ export class WebhookController {
       res.status(200).json({ received: true });
 
       // Procesar en background (no bloquea la respuesta HTTP)
-      this.handleMPWebhookUseCase.execute(payload).catch((err) =>
+      this.handleMPWebhookUseCase.execute(payload).catch((err: unknown) =>
         logger.error("MP webhook: error procesando evento", {
           err,
           type:    payload.type,

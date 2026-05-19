@@ -42,7 +42,7 @@ import { CreateBusinessUseCase } from "./application/businesses/CreateBusinessUs
 import { CreateBarberUseCase } from "./application/barbers/CreateBarberUseCase";
 import { CreateSubscriptionUseCase } from "./application/subscriptions/CreateSubscriptionUseCase";
 import { HandleWebhookUseCase } from "./application/subscriptions/HandleWebhookUseCase";
-import { HandleMPWebhookUseCase } from "./application/subscriptions/Handlempwebhookusecase";
+import { HandleMPWebhookUseCase } from "./application/subscriptions/HandleMPWebhookUseCase";
 import { CreateServiceUseCase } from "./application/services/CreateServiceUseCase";
 
 // ── Controllers ───────────────────────────────────────────────────────────────
