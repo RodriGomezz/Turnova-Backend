@@ -45,7 +45,7 @@ interface MPPreapproval {
   external_reference?: string;
   status: "pending" | "authorized" | "paused" | "cancelled";
   init_point: string;
-  sandbox_init_point?: string;
+  sandbox_init_point: string;
   payer_id?: number;
   payer_email?: string;
   next_payment_date?: string;
@@ -57,6 +57,24 @@ interface MPPreapproval {
   };
   date_created: string;
   last_modified: string;
+}
+
+/** true cuando el access token es de sandbox (empieza con TEST-) */
+function isSandbox(): boolean {
+  return (process.env.MP_ACCESS_TOKEN ?? "").startsWith("TEST-");
+}
+
+/**
+ * En sandbox MP devuelve init_point apuntando a produccion.
+ * Hay que usar sandbox_init_point para que el boton Confirmar funcione.
+ */
+function resolveInitPoint(preapproval: Pick<MPPreapproval, "init_point" | "sandbox_init_point">): string {
+  if (isSandbox()) {
+    const url = preapproval.sandbox_init_point || preapproval.init_point;
+    logger.info("MP sandbox: usando sandbox_init_point", { url });
+    return url;
+  }
+  return preapproval.init_point;
 }
 
 interface MPPayment {
@@ -210,7 +228,7 @@ export const mercadoPagoClient: IPaymentProvider = {
     return {
       // planToken guarda el preapproval_id — lo necesitamos para cancelar
       planToken:    preapproval.id,
-      subscribeUrl: preapproval.init_point,
+      subscribeUrl: resolveInitPoint(preapproval),
       dlocalPlanId: null,
     };
   },
