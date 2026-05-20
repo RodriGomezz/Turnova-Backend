@@ -196,7 +196,9 @@ export const mercadoPagoClient: IPaymentProvider = {
     const body: Record<string, unknown> = {
       reason:             planName,
       external_reference: externalReference,
-      payer_email:        payerEmail ?? "",
+      payer_email: isSandbox()
+      ? "buyer_123@testuser.com"
+      : payerEmail,
       auto_recurring: {
         frequency:          FREQUENCY,
         frequency_type:     FREQUENCY_TYPE,
