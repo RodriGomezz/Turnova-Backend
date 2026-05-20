@@ -218,17 +218,22 @@ export const mercadoPagoClient: IPaymentProvider = {
       externalReference,
     });
 
+    const resolvedUrl = resolveInitPoint(preapproval);
+
     logger.info("MP: preapproval creado exitosamente", {
-      preapprovalId: preapproval.id,
-      initPoint:     preapproval.init_point,
+      preapprovalId:    preapproval.id,
+      initPoint:        preapproval.init_point,
+      sandboxInitPoint: preapproval.sandbox_init_point,
+      resolvedUrl,
+      isSandboxMode:    isSandbox(),
+      tokenPrefix:      (process.env.MP_ACCESS_TOKEN ?? "").substring(0, 8),
       externalReference,
       plan,
     });
 
     return {
-      // planToken guarda el preapproval_id — lo necesitamos para cancelar
       planToken:    preapproval.id,
-      subscribeUrl: resolveInitPoint(preapproval),
+      subscribeUrl: resolvedUrl,
       dlocalPlanId: null,
     };
   },
