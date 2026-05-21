@@ -24,26 +24,53 @@ app.use(compression());
 app.use(helmet());
 
 const allowedOrigins = [process.env.FRONTEND_URL ?? "http://localhost:4200"];
+const baseDomain     = process.env.BASE_DOMAIN ?? "kronu.pro";
+
+/**
+ * SEC-006: validar subdominio con URL parsing en lugar de regex construida
+ * desde una variable de entorno.
+ *
+ * El enfoque anterior con RegExp(baseDomain.replace(...)) era vulnerable si
+ * BASE_DOMAIN contenía caracteres especiales de regex. También era difícil
+ * razonar sobre qué origins exactamente matcheaba.
+ *
+ * Este enfoque:
+ *   1. Parsea el origin como URL (falla si está malformado — bueno).
+ *   2. Verifica que termina en `.{baseDomain}` (endsWith — exacto).
+ *   3. Verifica que solo hay UN nivel de subdominio (no sub.sub.kronu.pro).
+ *   4. Verifica que es HTTPS (los subdominios de producción siempre lo son).
+ */
+function isAllowedSubdomain(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== "https:") return false;
+    const host = url.hostname;
+    if (!host.endsWith(`.${baseDomain}`)) return false;
+    // Solo 1 nivel de subdominio: "foo.kronu.pro" → ["foo", "kronu", "pro"]
+    // baseDomain "kronu.pro" tiene 2 partes → host debe tener exactamente 3
+    const expectedParts = baseDomain.split(".").length + 1;
+    return host.split(".").length === expectedParts;
+  } catch {
+    return false;
+  }
+}
+
+const allowLocalhost = process.env.ALLOW_LOCALHOST_CORS === "true";
 
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Requests sin origin (curl, Postman, SSR) — permitir
       if (!origin) return callback(null, true);
+
+      // Origen explícitamente permitido (FRONTEND_URL)
       if (allowedOrigins.includes(origin)) return callback(null, true);
 
-      if (
-        process.env.NODE_ENV === "development" &&
-        origin.match(/^http:\/\/[a-z0-9-]+\.localhost(:\d+)?$/)
-      ) {
-        return callback(null, true);
-      }
+      // Subdominio propio validado con URL parsing (SEC-006)
+      if (isAllowedSubdomain(origin)) return callback(null, true);
 
-      const baseDomain = process.env.BASE_DOMAIN ?? "kronu.pro";
-      if (
-        origin.match(
-          new RegExp(`^https://[a-z0-9-]+\\.${baseDomain.replace(/\./g, "\\.")}$`),
-        )
-      ) {
+      // localhost solo si se activa explícitamente (mismo patrón que rate limiter)
+      if (allowLocalhost && /^https?:\/\/[a-z0-9-]+\.localhost(:\d+)?$/.test(origin)) {
         return callback(null, true);
       }
 

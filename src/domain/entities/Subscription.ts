@@ -8,11 +8,17 @@ export type SubscriptionStatus =
 
 export type SubscriptionPlan = "starter" | "pro" | "business";
 
+/** monthly = cobro recurrente mensual | annual = un cobro único por 12 meses */
+export type BillingCycle = "monthly" | "annual";
+
 export interface Subscription {
   id: string;
   business_id: string;
   plan: SubscriptionPlan;
   status: SubscriptionStatus;
+
+  /** Ciclo de facturación: mensual o anual */
+  billing_cycle: BillingCycle;
 
   // ── IDs de dLocal Go ──────────────────────────────────────────────────────
   /** ID numérico del plan en dLocal Go */

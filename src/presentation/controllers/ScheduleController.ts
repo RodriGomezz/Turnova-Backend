@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { IScheduleRepository } from "../../domain/interfaces/IScheduleRepository";
 import { IBlockedDateRepository } from "../../domain/interfaces/IBlockedDateRepository";
 import { NotFoundError, ForbiddenError } from "../../domain/errors";
+import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
 import {
   CreateScheduleInput,
   UpdateScheduleInput,
@@ -22,9 +23,10 @@ export class ScheduleController {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const schedules = await this.scheduleRepository.findAllByBusiness(
-        req.businessId!,
-      );
+      const includeAll = req.query["include_all"] === "true";
+      const schedules = includeAll
+        ? await this.scheduleRepository.findRawByBusiness(req.businessId!)
+        : await this.scheduleRepository.findAllByBusiness(req.businessId!);
       res.json({ schedules });
     } catch (error) {
       next(error);
@@ -48,6 +50,7 @@ export class ScheduleController {
         activo: true,
       });
 
+      invalidateSlotsCache(req.businessId!);
       res.status(201).json({ schedule });
     } catch (error) {
       next(error);
@@ -68,6 +71,7 @@ export class ScheduleController {
       if (existing.business_id !== req.businessId) throw new ForbiddenError();
 
       const schedule = await this.scheduleRepository.update(id, input);
+      invalidateSlotsCache(req.businessId!);
       res.json({ schedule });
     } catch (error) {
       next(error);
@@ -87,6 +91,7 @@ export class ScheduleController {
       if (existing.business_id !== req.businessId) throw new ForbiddenError();
 
       await this.scheduleRepository.delete(id);
+      invalidateSlotsCache(req.businessId!);
       res.json({ message: "Horario eliminado correctamente" });
     } catch (error) {
       next(error);
@@ -126,6 +131,7 @@ export class ScheduleController {
         business_id: req.businessId!,
       });
 
+      invalidateSlotsCache(req.businessId!);
       res.status(201).json({ blockedDate });
     } catch (error) {
       next(error);
@@ -148,6 +154,7 @@ export class ScheduleController {
       if (existing.business_id !== req.businessId) throw new ForbiddenError();
 
       await this.blockedDateRepository.delete(id);
+      invalidateSlotsCache(req.businessId!);
       res.json({ message: "Fecha desbloqueada correctamente" });
     } catch (error) {
       next(error);

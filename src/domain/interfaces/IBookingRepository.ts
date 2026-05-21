@@ -24,6 +24,22 @@ export interface IBookingRepository {
   ): Promise<string[]>;
   create(data: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at">): Promise<Booking>;
   updateEstado(id: string, estado: BookingEstado): Promise<Booking>;
+  modify(
+    id: string,
+    data: {
+      fecha: string;
+      hora_inicio: string;
+      hora_fin: string;
+      barber_id: string;
+      service_id: string;
+      estado: "modificada";
+      modified_at: string;
+    },
+  ): Promise<Booking>;
+  cancel(
+    id: string,
+    data: { cancelled_at: string; cancel_reason: string | null },
+  ): Promise<Booking>;
   markReminderSent(id: string): Promise<void>;
   countByMonth(
     businessId: string,

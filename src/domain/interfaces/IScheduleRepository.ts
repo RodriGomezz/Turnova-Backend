@@ -2,6 +2,7 @@ import { Schedule } from "../entities/Schedule";
 
 export interface IScheduleRepository {
   findById(id: string): Promise<Schedule | null>;
+  findRawByBusiness(businessId: string): Promise<Schedule[]>;
   findForBarber(
     businessId: string,
     barberId: string,

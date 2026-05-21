@@ -20,13 +20,40 @@ const sanitize = format((info) => {
   return info;
 });
 
-function redact(obj: Record<string, unknown>): Record<string, unknown> {
+/**
+ * PERF-002: redact recursivo con profundidad máxima.
+ *
+ * El redact original solo sanitizaba el primer nivel del objeto. Si un error
+ * encapsulaba datos sensibles en objetos anidados (ej: { user: { token: "x" } }),
+ * el token llegaba a los logs sin redactar.
+ *
+ * depth=4 es el techo: suficiente para estructuras de error reales, evita
+ * loops infinitos en objetos con referencias circulares.
+ */
+function redact(
+  obj: Record<string, unknown>,
+  depth = 0,
+): Record<string, unknown> {
+  if (depth > 4) return { "[truncated]": true };
+
   const result: Record<string, unknown> = {};
+
   for (const [key, value] of Object.entries(obj)) {
-    result[key] = SENSITIVE_FIELDS.has(key.toLowerCase())
-      ? "[REDACTED]"
-      : value;
+    if (SENSITIVE_FIELDS.has(key.toLowerCase())) {
+      result[key] = "[REDACTED]";
+    } else if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      !(value instanceof Date) &&
+      !(value instanceof Error)
+    ) {
+      result[key] = redact(value as Record<string, unknown>, depth + 1);
+    } else {
+      result[key] = value;
+    }
   }
+
   return result;
 }
 

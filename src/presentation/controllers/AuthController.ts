@@ -112,6 +112,12 @@ export class AuthController {
       });
       if (error) throw new AppError("Credenciales inválidas", 401);
 
+      // Registrar último acceso en login — un write puntual es suficiente.
+      // Fire-and-forget: no bloquea la respuesta ni falla el login si la BD tarda.
+      this.userRepository
+        .updateLastSeen(data.user!.id, new Date().toISOString())
+        .catch((err) => logger.error("Error actualizando last_seen_at en login", { err }));
+
       res.json({
         token: data.session.access_token,
         refresh_token: data.session.refresh_token,
@@ -159,6 +165,13 @@ export class AuthController {
         refresh_token,
       });
       if (error || !data.session) throw new AppError("Sesión inválida", 401);
+
+      // Registrar acceso también en refresh: el usuario mantiene la sesión
+      // sin hacer login explícito, pero sigue siendo un acceso real al panel.
+      // data.session.user.id está garantizado — ya verificamos !data.session arriba.
+      this.userRepository
+        .updateLastSeen(data.session.user.id, new Date().toISOString())
+        .catch((err) => logger.error("Error actualizando last_seen_at en refresh", { err }));
 
       res.json({
         token: data.session.access_token,

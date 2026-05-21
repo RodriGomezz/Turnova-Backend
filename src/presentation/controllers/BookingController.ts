@@ -1,3 +1,7 @@
+import { GetAllSlotsForDaysUseCase } from "../../application/bookings/GetAllSlotsForDaysUseCase";
+import { ModifyBookingUseCase } from "../../application/bookings/ModifyBookingUseCase";
+import { CancelBookingUseCase } from "../../application/bookings/CancelBookingUseCase";
+import { getSlotsFromCache, setSlotsCache, invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
 import { Request, Response, NextFunction } from "express";
 import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
 import { IBarberRepository } from "../../domain/interfaces/IBarberRepository";
@@ -30,6 +34,9 @@ export class BookingController {
     private readonly getDaySummaryUseCase: GetDaySummaryUseCase,
     private readonly getAvailableDaysUseCase: GetAvailableDaysUseCase,
     private readonly emailService: IEmailService,
+    private readonly getAllSlotsForDaysUseCase: GetAllSlotsForDaysUseCase,
+    private readonly modifyBookingUseCase: ModifyBookingUseCase,
+    private readonly cancelBookingUseCase: CancelBookingUseCase,
   ) {}
 
   // ── Panel del dueño ───────────────────────────────────────────────────────
@@ -408,4 +415,115 @@ export class BookingController {
 
     Promise.all(tasks).catch((err) => logger.error("Error enviando emails", err));
   }
+  /**
+   * GET /public/:slug/available-days-with-slots
+   *
+   * Precarga todos los slots del mes en una sola llamada.
+   * El frontend los cachea en cliente y no necesita más requests al cambiar de día.
+   * Mismo costo en BD que /available-days: 3 queries independientemente del mes.
+   */
+  getAllSlotsForDays = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const slug      = req.params["slug"] as string;
+      const { year, month, barber_id, service_id } = req.query;
+
+      const y = parseInt((year  as string) ?? new Date().getFullYear().toString());
+      const m = parseInt((month as string) ?? (new Date().getMonth() + 1).toString());
+
+      if (isNaN(y) || isNaN(m) || m < 1 || m > 12) {
+        res.status(400).json({ error: "year y month son requeridos y deben ser válidos" });
+        return;
+      }
+
+      const barberId  = (barber_id  as string) ?? "";
+      const serviceId = (service_id as string) ?? "";
+
+      // Buscar el businessId para la clave de cache
+      const business = await this.businessRepository.findBySlug(slug);
+      if (!business) {
+        res.status(404).json({ error: "Negocio no encontrado" });
+        return;
+      }
+
+      // Verificar estado del negocio
+      const status = getBusinessStatus(business);
+      if (status === "trial_expired" || status === "paused" || status === "subscription_expired") {
+        res.json({ year: y, month: m, days: [] });
+        return;
+      }
+
+      // Cache hit
+      const cached = getSlotsFromCache(business.id, barberId, serviceId, y, m);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
+
+      const result = await this.getAllSlotsForDaysUseCase.execute({
+        slug, year: y, month: m, barberId, serviceId,
+      });
+
+      setSlotsCache(business.id, barberId, serviceId, y, m, result);
+
+      // Transformar al formato esperado por el frontend:
+      // { availableDays: string[], slots: Record<string, TimeSlot[]> }
+      const availableDays = result.days.map((d) => d.fecha);
+      const slots = Object.fromEntries(
+        result.days.map((d) => [d.fecha, d.slots]),
+      );
+      res.json({ availableDays, slots });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+
+  modifyBooking = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id }                                  = req.params;
+      const { fecha, hora_inicio, hora_fin,
+              barber_id, service_id }               = req.body as {
+        fecha: string; hora_inicio: string; hora_fin: string;
+        barber_id?: string; service_id?: string;
+      };
+
+      if (!fecha || !hora_inicio || !hora_fin) {
+        res.status(400).json({ error: "fecha, hora_inicio y hora_fin son requeridos" });
+        return;
+      }
+
+      const booking = await this.modifyBookingUseCase.execute({
+        bookingId:  id as string,
+        businessId: req.businessId!,
+        fecha,
+        horaInicio: hora_inicio,
+        horaFin:    hora_fin,
+        barberId:   barber_id,
+        serviceId:  service_id,
+      });
+
+      res.json({ booking });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  cancelBooking = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id }     = req.params;
+      const { reason } = req.body as { reason?: string };
+
+      const booking = await this.cancelBookingUseCase.execute({
+        bookingId:  id as string,
+        businessId: req.businessId!,
+        reason,
+      });
+
+      res.json({ booking });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+
 }

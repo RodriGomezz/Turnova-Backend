@@ -1,9 +1,10 @@
-import { supabase } from './supabase.client';
-import { User } from '../../domain/entities/User';
-import { AppError } from '../../presentation/middlewares/errorHandler.middleware';
+import { supabase } from "./supabase.client";
+import { User } from "../../domain/entities/User";
+import { AppError } from "../../domain/errors";
+import { registerSlug, releaseSlug } from "../cache/slug.cache";
 
 export class UserRepository {
-  private table = "users";
+  private readonly table = "users";
 
   async findById(id: string): Promise<User | null> {
     const { data, error } = await supabase
@@ -12,9 +13,8 @@ export class UserRepository {
       .eq("id", id)
       .single();
 
-    if (error && error.code === "PGRST116") return null;
+    if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
-
     return data as User;
   }
 
@@ -25,9 +25,8 @@ export class UserRepository {
       .eq("business_id", businessId)
       .single();
 
-    if (error && error.code === "PGRST116") return null;
+    if (error?.code === "PGRST116") return null;
     if (error) throw new AppError(error.message, 500);
-
     return data as User;
   }
 
@@ -39,7 +38,6 @@ export class UserRepository {
       .single();
 
     if (error) throw new AppError(error.message, 500);
-
     return created as User;
   }
 
@@ -52,22 +50,31 @@ export class UserRepository {
       .single();
 
     if (error) throw new AppError(error.message, 500);
-
     return updated as User;
+  }
+
+  /**
+   * Actualiza last_seen_at sin retornar el objeto completo.
+   * Se usa en fire-and-forget — no necesita los datos del usuario.
+   */
+  async updateLastSeen(userId: string, isoTimestamp: string): Promise<void> {
+    const { error } = await supabase
+      .from(this.table)
+      .update({ last_seen_at: isoTimestamp })
+      .eq("id", userId);
+
+    if (error) throw new AppError(error.message, 500);
   }
 
   async findBusinessesByUserId(
     userId: string,
-  ): Promise<
-    { id: string; nombre: string; slug: string; logo_url: string | null }[]
-  > {
+  ): Promise<{ id: string; nombre: string; slug: string; logo_url: string | null }[]> {
     const { data, error } = await supabase
       .from("user_businesses")
       .select("businesses(id, nombre, slug, logo_url)")
       .eq("user_id", userId);
 
     if (error) throw new AppError(error.message, 500);
-
     return (data ?? []).map((row: any) => row.businesses).filter(Boolean);
   }
 

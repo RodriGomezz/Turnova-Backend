@@ -24,6 +24,9 @@ import { GetAvailableSlotsUseCase } from "./application/bookings/GetAvailableSlo
 import { CreateBookingUseCase } from "./application/bookings/CreateBookingUseCase";
 import { GetDaySummaryUseCase } from "./application/bookings/GetDaySummaryUseCase";
 import { GetAvailableDaysUseCase } from "./application/bookings/GetAvailableDaysUseCase";
+import { GetAllSlotsForDaysUseCase } from "./application/bookings/GetAllSlotsForDaysUseCase";
+import { ModifyBookingUseCase } from "./application/bookings/ModifyBookingUseCase";
+import { CancelBookingUseCase } from "./application/bookings/CancelBookingUseCase";
 import { CreateBusinessUseCase } from "./application/businesses/CreateBusinessUseCase";
 import { CreateBarberUseCase } from "./application/barbers/CreateBarberUseCase";
 import { CreateSubscriptionUseCase } from "./application/subscriptions/CreateSubscriptionUseCase";
@@ -84,6 +87,14 @@ const getAvailableDaysUseCase = new GetAvailableDaysUseCase(
   bookingRepository,
 );
 
+const getAllSlotsForDaysUseCase = new GetAllSlotsForDaysUseCase(
+  businessRepository,
+  serviceRepository,
+  scheduleRepository,
+  blockedDateRepository,
+  bookingRepository,
+);
+
 export const createBusinessUseCase = new CreateBusinessUseCase(
   businessRepository,
   userRepository,
@@ -111,6 +122,16 @@ const handleWebhookUseCase = new HandleWebhookUseCase(
 // Controllers
 // ─────────────────────────────────────────────────────────────────────────────
 
+const modifyBookingUseCase = new ModifyBookingUseCase(
+  bookingRepository,
+  scheduleRepository,
+  blockedDateRepository,
+);
+
+const cancelBookingUseCase = new CancelBookingUseCase(
+  bookingRepository,
+);
+
 export const bookingController = new BookingController(
   bookingRepository,
   barberRepository,
@@ -121,6 +142,9 @@ export const bookingController = new BookingController(
   getDaySummaryUseCase,
   getAvailableDaysUseCase,
   emailService,
+  getAllSlotsForDaysUseCase,
+  modifyBookingUseCase,
+  cancelBookingUseCase,
 );
 
 export const businessController = new BusinessController(

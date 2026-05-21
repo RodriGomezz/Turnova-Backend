@@ -1,4 +1,8 @@
-export type BookingEstado = 'pendiente' | 'confirmada' | 'cancelada';
+export type BookingEstado =
+  | "pendiente"
+  | "confirmada"
+  | "cancelada"
+  | "modificada";
 
 export interface Booking {
   id: string;
@@ -14,5 +18,11 @@ export interface Booking {
   estado: BookingEstado;
   cancellation_token: string;
   reminder_sent_at: string | null;
+  /** Timestamp de la última modificación de fecha/hora/profesional */
+  modified_at?: string | null;
+  /** Timestamp de cancelación (reemplaza borrado lógico) */
+  cancelled_at?: string | null;
+  /** Motivo de cancelación ingresado por el negocio */
+  cancel_reason?: string | null;
   created_at: string;
 }

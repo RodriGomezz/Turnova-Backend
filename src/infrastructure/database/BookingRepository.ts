@@ -1,6 +1,6 @@
 import { supabase } from "./supabase.client";
 import { Booking, BookingEstado } from "../../domain/entities/Booking";
-import { AppError } from "../../domain/errors";
+import { AppError, ConflictError } from "../../domain/errors";
 import {
   IBookingRepository,
   BookingsByMonth,
@@ -204,4 +204,45 @@ export class BookingRepository implements IBookingRepository {
       to: `${year}-${mm}-${lastDay}`,
     };
   }
+  async modify(
+    id: string,
+    data: {
+      fecha: string;
+      hora_inicio: string;
+      hora_fin: string;
+      barber_id: string;
+      service_id: string;
+      estado: "modificada";
+      modified_at: string;
+    },
+  ): Promise<Booking> {
+    const { data: updated, error } = await supabase
+      .from(this.table)
+      .update(data)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error?.code === "23505") {
+      throw new ConflictError("El horario seleccionado ya está ocupado");
+    }
+    if (error) throw new AppError(error.message, 500);
+    return updated as Booking;
+  }
+
+  async cancel(
+    id: string,
+    data: { cancelled_at: string; cancel_reason: string | null },
+  ): Promise<Booking> {
+    const { data: updated, error } = await supabase
+      .from(this.table)
+      .update({ estado: "cancelada", ...data })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw new AppError(error.message, 500);
+    return updated as Booking;
+  }
+
 }

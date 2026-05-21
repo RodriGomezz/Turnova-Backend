@@ -18,34 +18,49 @@ export class WebhookController {
     next: NextFunction,
   ): Promise<void> => {
     try {
+      const rawBody = req.body as Buffer;
+
+      // ── [SEC-001] CRÍTICO: Firma obligatoria ──────────────────────────────
+      // La verificación de firma NO es opcional. Sin ella cualquiera puede
+      // realizar un POST y activar suscripciones sin pagar.
       const signature = req.headers["x-signature"] as string | undefined;
-      if (signature) {
-        this.verifySignature(req.body as Buffer, signature);
-      } else {
-        logger.warn("Webhook dLocal Go recibido sin X-Signature — omitiendo verificación");
-      }
-
-      // Loggear raw body completo para diagnóstico
-      const rawBody = (req.body as Buffer).toString();
-      console.log("=== WEBHOOK RAW BODY ===", rawBody);
-      console.log("=== WEBHOOK HEADERS ===", JSON.stringify(req.headers));
-      logger.warn("Webhook dLocal Go raw body", { rawBody, headers: req.headers });
-
-      let payload: DLocalGoWebhookPayload;
-      try {
-        payload = JSON.parse(rawBody) as DLocalGoWebhookPayload;
-      } catch {
-        logger.error("Webhook payload no es JSON válido", { rawBody });
+      if (!signature) {
+        logger.warn("Webhook dLocal Go rechazado: X-Signature ausente", {
+          ip: req.ip,
+          userAgent: req.headers["user-agent"],
+        });
+        // Devolvemos 200 para evitar que dLocal Go reintente indefinidamente,
+        // pero NO procesamos el payload.
         res.status(200).json({ received: true });
         return;
       }
 
-      console.log("=== WEBHOOK PAYLOAD ===", JSON.stringify(payload, null, 2));
-      console.log("=== DLOCAL WEBHOOK PAYLOAD ===", JSON.stringify(payload, null, 2));
-      logger.warn("Webhook dLocal Go payload parseado", { payload: JSON.stringify(payload) });
+      this.verifySignature(rawBody, signature);
+
+      // ── Parse del payload ─────────────────────────────────────────────────
+      // [SEC-002] NO logueamos el raw body completo: puede contener tokens
+      // de tarjeta o datos PCI. Solo logueamos metadatos no sensibles.
+      let payload: DLocalGoWebhookPayload;
+      try {
+        payload = JSON.parse(rawBody.toString()) as DLocalGoWebhookPayload;
+      } catch {
+        logger.error("Webhook dLocal Go: payload no es JSON válido", {
+          contentLength: rawBody.length,
+        });
+        res.status(200).json({ received: true });
+        return;
+      }
+
+      // Log mínimo: solo identificadores, nunca el payload completo
+      logger.info("Webhook dLocal Go recibido y verificado", {
+        externalId:     payload.external_id ?? payload.externalId,
+        subscriptionId: payload.subscription_id ?? payload.subscriptionId,
+        invoiceId:      payload.order_id ?? payload.invoiceId,
+        status:         payload.status,
+        mid:            payload.mid,
+      });
 
       // Buscar identificadores en todos los campos posibles del payload
-      // dLocal Go puede enviar los datos con distintos nombres de campo
       const subscriptionToken =
         payload.subscription_token ??
         (payload as Record<string, unknown>)["subscriptionToken"] as string | undefined;
@@ -67,15 +82,13 @@ export class WebhookController {
       const hasIdentifier = subscriptionToken || planToken || externalId || orderId || id;
 
       if (!hasIdentifier) {
-        logger.warn("Webhook dLocal Go sin identificadores — payload completo:", {
+        logger.warn("Webhook dLocal Go sin identificadores", {
           keys: Object.keys(payload),
-          payload,
         });
         res.status(200).json({ received: true });
         return;
       }
 
-      // Normalizar al formato esperado por HandleWebhookUseCase
       const normalizedPayload: DLocalGoWebhookPayload = {
         ...payload,
         subscription_token: subscriptionToken,
@@ -95,8 +108,10 @@ export class WebhookController {
   private verifySignature(rawBody: Buffer, signature: string): void {
     const secret = process.env.DLOCAL_SECRET_KEY;
     if (!secret) {
-      logger.warn("DLOCAL_SECRET_KEY no configurado — verificación omitida");
-      return;
+      // Si el secret no está configurado en producción, es un error de
+      // infraestructura — no silencioso, lanzamos para que el proceso falle ruidoso.
+      logger.error("DLOCAL_SECRET_KEY no configurado — no se puede verificar firma");
+      throw new AppError("Error de configuración del servidor", 500);
     }
 
     const expected = crypto
@@ -104,11 +119,14 @@ export class WebhookController {
       .update(rawBody)
       .digest("hex");
 
+    // timingSafeEqual previene timing attacks
     if (
       signature.length !== expected.length ||
       !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
     ) {
-      logger.warn("Firma de webhook inválida");
+      logger.warn("Webhook dLocal Go: firma inválida rechazada", {
+        signatureLength: signature.length,
+      });
       throw new AppError("Firma de webhook inválida", 401);
     }
   }

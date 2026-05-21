@@ -1,26 +1,14 @@
 import { ISubscriptionRepository } from "../../domain/interfaces/ISubscriptionRepository";
 import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository";
 import { IEmailService } from "../ports/IEmailService";
-import { Subscription, SubscriptionStatus } from "../../domain/entities/Subscription";
+import { Subscription, SubscriptionStatus, BillingCycle } from "../../domain/entities/Subscription";
 import { logger } from "../../infrastructure/logger";
-import { PLAN_PRICES } from "../../domain/plan-prices";
-import { updateBusinessNetwork } from "../../infrastructure/database/business-network";
-import { findNetworkBusinessIds } from "../../infrastructure/database/business-network";
+import { PLAN_PRICES_MONTHLY, PLAN_PRICES_ANNUAL } from "../../domain/plan-prices";
+import { updateBusinessNetwork, findNetworkBusinessIds } from "../../infrastructure/database/business-network";
 import { PLAN_LIMITS } from "../../domain/plan-limits";
 
 /**
  * Payload real que dLocal Go envía al notification_url.
- *
- * Formato observado en producción (sandbox):
- * {
- *   "invoiceId":      "ST-{subscriptionToken}-{n}",  ← order_id de la ejecución
- *   "subscriptionId": 9163,                           ← ID numérico de la suscripción
- *   "externalId":     "uuid-de-nuestra-bd",           ← el que enviamos en ?external_id=
- *   "mid":            4232
- * }
- *
- * Sin campo "status" — la presencia del webhook indica pago procesado.
- * Para pagos fallidos dLocal Go envía un campo "status": "DECLINED" o similar.
  */
 export interface DLocalGoWebhookPayload {
   // Formato real observado (camelCase)
@@ -53,15 +41,14 @@ export class HandleWebhookUseCase {
   ) {}
 
   async execute(payload: DLocalGoWebhookPayload): Promise<void> {
-    // Normalizar campos camelCase → snake_case
     const normalized = this.normalizePayload(payload);
 
     logger.info("Webhook dLocal Go recibido", {
-      externalId:        normalized.external_id,
-      subscriptionId:    normalized.subscription_id,
-      invoiceId:         normalized.order_id,
-      status:            normalized.status,
-      executionStatus:   normalized.execution_status,
+      externalId:      normalized.external_id,
+      subscriptionId:  normalized.subscription_id,
+      invoiceId:       normalized.order_id,
+      status:          normalized.status,
+      executionStatus: normalized.execution_status,
     });
 
     const event = this.detectEvent(normalized);
@@ -80,7 +67,7 @@ export class HandleWebhookUseCase {
       default:
         logger.warn("Webhook dLocal Go evento desconocido — ignorado", {
           event,
-          payload: JSON.stringify(normalized),
+          payloadKeys: Object.keys(normalized),
         });
     }
   }
@@ -90,31 +77,19 @@ export class HandleWebhookUseCase {
   private normalizePayload(p: DLocalGoWebhookPayload): DLocalGoWebhookPayload {
     return {
       ...p,
-      // camelCase → snake_case
-      external_id:        p.external_id      ?? p.externalId,
-      subscription_id:    p.subscription_id  ?? p.subscriptionId,
-      order_id:           p.order_id         ?? p.invoiceId,
+      external_id:     p.external_id     ?? p.externalId,
+      subscription_id: p.subscription_id ?? p.subscriptionId,
+      order_id:        p.order_id        ?? p.invoiceId,
     };
   }
 
-  /**
-   * Detecta el tipo de evento basado en el payload.
-   *
-   * Reglas observadas en dLocal Go sandbox:
-   * - Solo tiene invoiceId/subscriptionId/externalId → pago exitoso (primer cobro o renovación)
-   * - Tiene status DECLINED/FAILED/REJECTED       → pago fallido
-   * - Tiene status CANCELLED/CANCELED             → suscripción cancelada
-   * - Tiene status CONFIRMED                      → primer pago exitoso (alternativo)
-   * - Tiene status COMPLETED                      → renovación exitosa (alternativo)
-   */
   private detectEvent(p: DLocalGoWebhookPayload): string {
     const status = (p.status ?? p.execution_status ?? "").toUpperCase();
 
     if (["DECLINED", "FAILED", "REJECTED"].includes(status)) return "PAYMENT_FAILED";
-    if (["CANCELLED", "CANCELED"].includes(status))            return "SUBSCRIPTION_CANCELLED";
+    if (["CANCELLED", "CANCELED"].includes(status))           return "SUBSCRIPTION_CANCELLED";
 
-    // Pago exitoso: tiene invoiceId/order_id Y (sin status O status positivo)
-    const hasInvoice = !!(p.order_id ?? p.invoiceId);
+    const hasInvoice       = !!(p.order_id ?? p.invoiceId);
     const hasPositiveStatus = ["CONFIRMED", "COMPLETED", "PAID", "APPROVED", ""].includes(status);
 
     if (hasInvoice && hasPositiveStatus) return "PAYMENT_SUCCESS";
@@ -124,9 +99,6 @@ export class HandleWebhookUseCase {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  /**
-   * Maneja tanto el primer pago (pending → active) como renovaciones (active → active).
-   */
   private async handlePaymentSuccess(
     payload: DLocalGoWebhookPayload,
   ): Promise<void> {
@@ -135,7 +107,15 @@ export class HandleWebhookUseCase {
 
     const now = new Date();
     const nextPeriodEnd = new Date(now);
-    nextPeriodEnd.setDate(nextPeriodEnd.getDate() + 30);
+
+    // ── Período según ciclo de facturación ───────────────────────────────
+    // Para suscripciones anuales el período es de 365 días; para mensuales, 30.
+    const cycle: BillingCycle = subscription.billing_cycle ?? "monthly";
+    if (cycle === "annual") {
+      nextPeriodEnd.setFullYear(nextPeriodEnd.getFullYear() + 1);
+    } else {
+      nextPeriodEnd.setDate(nextPeriodEnd.getDate() + 30);
+    }
 
     await this.subscriptionRepository.updateStatus(subscription.id, "active", {
       dlocal_subscription_id:    payload.subscription_id ?? subscription.dlocal_subscription_id,
@@ -161,63 +141,82 @@ export class HandleWebhookUseCase {
             trial_ends_at: null,
             subscription_downgraded_at: null,
           });
-            await this.enforceMultiSucursalLimit(
-            subscription.business_id,
-            subscription.plan,
-          );
+          // Al subir a business se reactivan las sucursales si las hubiera;
+          // enforceMultiSucursalLimit solo desactiva, aquí no es necesario.
         } else {
           await this.businessRepository.update(subscription.business_id, {
             plan: subscription.plan,
             trial_ends_at: null,
             subscription_downgraded_at: null,
           });
+
+          // ── [BUG-001] CRÍTICO: Al bajar de business a pro/starter, las
+          // sucursales adicionales deben quedar desactivadas. Sin esto siguen
+          // funcionando con los beneficios del plan superior.
+          await this.enforceMultiSucursalLimit(
+            subscription.business_id,
+            subscription.plan,
+          );
         }
       }
     }
+
+    const planPrice =
+      cycle === "annual"
+        ? PLAN_PRICES_ANNUAL[subscription.plan] ?? 0
+        : PLAN_PRICES_MONTHLY[subscription.plan] ?? 0;
 
     this.fireAndForget(() =>
       this.emailService.sendPaymentConfirmation({
         to:              business?.email ?? "",
         negocioNombre:   business?.nombre ?? "",
         plan:            subscription.plan,
-        amount:          PLAN_PRICES[subscription.plan] ?? 0,
+        amount:          planPrice,
         currency:        "UYU",
         nextBillingDate: nextPeriodEnd.toISOString(),
       }),
     );
 
     logger.info("Suscripción activada por pago exitoso", {
-      subscriptionId:  subscription.id,
-      businessId:      subscription.business_id,
-      plan:            subscription.plan,
-      wasStatus:       subscription.status,
-      invoiceId:       payload.order_id,
+      subscriptionId: subscription.id,
+      businessId:     subscription.business_id,
+      plan:           subscription.plan,
+      cycle,
+      wasStatus:      subscription.status,
+      invoiceId:      payload.order_id,
     });
   }
 
+  /**
+   * [BUG-001] Desactiva sucursales adicionales cuando el plan no incluye
+   * multi-sucursal. Se aplica SIEMPRE que hay un pago exitoso en plan ≠ business,
+   * cubriendo tanto primeras suscripciones como downgrades desde business.
+   *
+   * La lógica: la sucursal principal (la más antigua por created_at en
+   * user_businesses) queda activa; el resto se desactivan.
+   */
   private async enforceMultiSucursalLimit(
-  seedBusinessId: string,
-  newPlan: string,
-): Promise<void> {
-  const limits = PLAN_LIMITS[newPlan];
-  if (limits?.multiSucursal) return; // business plan — sin restricción
+    seedBusinessId: string,
+    newPlan: string,
+  ): Promise<void> {
+    const limits = PLAN_LIMITS[newPlan];
+    if (limits?.multiSucursal) return; // business plan — sin restricción
 
-  const businessIds = await findNetworkBusinessIds(seedBusinessId);
-  if (businessIds.length <= 1) return; // solo una sucursal — nada que hacer
+    const businessIds = await findNetworkBusinessIds(seedBusinessId);
+    if (businessIds.length <= 1) return;
 
-  // Mantener activa solo la primera (la principal, por orden de creación)
-  // y desactivar el resto
-  const toDeactivate = businessIds.slice(1);
+    // findNetworkBusinessIds ordena por created_at ASC → el primero es el principal
+    const toDeactivate = businessIds.slice(1);
 
-  for (const businessId of toDeactivate) {
-    await this.businessRepository.update(businessId, { activo: false });
-    logger.info("Sucursal desactivada por downgrade de plan", {
-      businessId,
-      newPlan,
-      seedBusinessId,
-    });
+    for (const businessId of toDeactivate) {
+      await this.businessRepository.update(businessId, { activo: false });
+      logger.info("Sucursal desactivada por cambio a plan sin multi-sucursal", {
+        businessId,
+        newPlan,
+        seedBusinessId,
+      });
+    }
   }
-}
 
   private async handleExecutionDeclined(
     payload: DLocalGoWebhookPayload,
@@ -292,7 +291,6 @@ export class HandleWebhookUseCase {
   private async findSubscription(
     payload: DLocalGoWebhookPayload,
   ): Promise<Subscription | null> {
-    // 1. Por external_id — el más preciso, lo enviamos como ?external_id= en la URL
     const extId = payload.external_id ?? payload.externalId;
     if (extId) {
       const sub = await this.subscriptionRepository.findById(extId);
@@ -302,7 +300,6 @@ export class HandleWebhookUseCase {
       }
     }
 
-    // 2. Por subscription_token
     if (payload.subscription_token) {
       const sub = await this.subscriptionRepository.findBySubscriptionToken(
         payload.subscription_token,
@@ -310,13 +307,11 @@ export class HandleWebhookUseCase {
       if (sub) return sub;
     }
 
-    // 3. Por plan_token (solo pending)
     if (payload.plan_token) {
       const sub = await this.subscriptionRepository.findByPlanToken(payload.plan_token);
       if (sub) return sub;
     }
 
-    // 4. Por order_id / invoiceId
     const invoiceId = payload.order_id ?? payload.invoiceId;
     if (invoiceId) {
       const sub = await this.subscriptionRepository.findByExecutionId(invoiceId);

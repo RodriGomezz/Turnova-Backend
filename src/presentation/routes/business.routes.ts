@@ -3,15 +3,49 @@ import { authMiddleware } from "../middlewares/auth.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { updateBusinessSchema } from "../schemas/business.schema";
 import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
-import { AppError } from "../middlewares/errorHandler.middleware";
+import { AppError } from "../../domain/errors";
 import { supabase } from "../../infrastructure/database/supabase.client";
-import { businessController as controller } from '../../container';
+import { businessController as controller } from "../../container";
+import { publicLimiter } from "../middlewares/rateLimiter.middleware";
+import { isSlugAvailable } from "../../infrastructure/cache/slug.cache";
 
 const router: Router = Router();
 
+// ── Verificación de slug — pública, sin auth ──────────────────────────────────
+// Rate-limited (publicLimiter: 120 req/min) para prevenir enumeración masiva.
+// Responde en < 1 ms (lookup en Set<string>) sin queries a la BD.
+//
+// SEC: No revelar información de negocios. Solo devolvemos available: true/false.
+// Un actor malicioso puede enumerar slugs con este endpoint, pero:
+//   - Los slugs son parte de la URL pública (/public/:slug) — ya son públicos.
+//   - El rate limiter frena la enumeración masiva.
+//   - No revelamos el nombre del negocio ni datos adicionales.
+router.get(
+  "/slug-check",
+  publicLimiter,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const raw  = String(req.query["slug"] ?? "").trim().toLowerCase();
+      const slug = raw.replace(/[^a-z0-9-]/g, "").slice(0, 50);
+
+      if (!slug || slug.length < 3) {
+        res.json({ available: false, reason: "too_short" });
+        return;
+      }
+
+      const available = await isSlugAvailable(slug);
+      res.json({ slug, available });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── Rutas protegidas ──────────────────────────────────────────────────────────
+
 const businessPlanGuard = async (
-  req: Request,
-  res: Response,
+  req:  Request,
+  res:  Response,
   next: NextFunction,
 ): Promise<void> => {
   try {

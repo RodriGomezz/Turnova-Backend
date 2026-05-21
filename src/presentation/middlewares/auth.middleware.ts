@@ -1,14 +1,13 @@
 import { Request, Response, NextFunction } from "express";
-import {
-  createSupabaseAuthClient,
-} from "../../infrastructure/database/supabase.client";
+import { createSupabaseAuthClient } from "../../infrastructure/database/supabase.client";
 import { UserRepository } from "../../infrastructure/database/UserRepository";
 import { UnauthorizedError } from "../../domain/errors";
+import { logger } from "../../infrastructure/logger";
 
 declare global {
   namespace Express {
     interface Request {
-      userId?: string;
+      userId?:     string;
       businessId?: string;
     }
   }
@@ -16,14 +15,14 @@ declare global {
 
 interface CacheEntry {
   businessId: string;
-  timestamp: number;
+  timestamp:  number;
 }
 
-const USER_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+const USER_CACHE_TTL_MS  = 5 * 60 * 1_000; // 5 minutos
 const USER_CACHE_MAX_SIZE = 1_000;
 
 const userRepository = new UserRepository();
-const userCache = new Map<string, CacheEntry>();
+const userCache      = new Map<string, CacheEntry>();
 
 function getCached(userId: string): string | null {
   const entry = userCache.get(userId);
@@ -48,7 +47,7 @@ export function invalidateUserCache(userId: string): void {
 }
 
 export const authMiddleware = async (
-  req: Request,
+  req:  Request,
   _res: Response,
   next: NextFunction,
 ): Promise<void> => {
@@ -56,10 +55,9 @@ export const authMiddleware = async (
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) throw new UnauthorizedError();
 
-    const token = authHeader.slice(7); // más eficiente que split(" ")[1]
+    const token = authHeader.slice(7);
 
     const authClient = createSupabaseAuthClient();
-
     const {
       data: { user },
       error,
@@ -69,7 +67,7 @@ export const authMiddleware = async (
 
     const cached = getCached(user.id);
     if (cached) {
-      req.userId = user.id;
+      req.userId     = user.id;
       req.businessId = cached;
       return next();
     }
@@ -78,8 +76,9 @@ export const authMiddleware = async (
     if (!dbUser) throw new UnauthorizedError();
 
     setCache(user.id, dbUser.business_id);
-    req.userId = user.id;
+    req.userId     = user.id;
     req.businessId = dbUser.business_id;
+
     next();
   } catch (error) {
     next(error);

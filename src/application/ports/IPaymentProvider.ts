@@ -1,8 +1,8 @@
-import { SubscriptionPlan } from "../../domain/entities/Subscription";
+import { SubscriptionPlan, BillingCycle } from "../../domain/entities/Subscription";
 
 // ── Resultado de crear un checkout de suscripción en dLocal Go ────────────────
 export interface CreateCheckoutResult {
-  /** plan_token devuelto por dLocal Go al crear el plan (si se creó ahora) */
+  /** plan_token devuelto por dLocal Go al crear el plan */
   planToken: string;
   /** URL a la que redirigir al usuario para que ingrese su tarjeta */
   subscribeUrl: string;
@@ -33,6 +33,7 @@ export interface IPaymentProvider {
   /**
    * Obtiene (o crea si no existe) el plan en dLocal Go y devuelve la
    * subscribe_url para redirigir al usuario al checkout hosted.
+   * El parámetro `cycle` distingue planes mensuales de anuales.
    */
   getOrCreatePlan(
     plan: SubscriptionPlan,
@@ -40,6 +41,7 @@ export interface IPaymentProvider {
     successUrl: string,
     backUrl: string,
     errorUrl: string,
+    cycle?: BillingCycle,
   ): Promise<CreateCheckoutResult>;
 
   /**

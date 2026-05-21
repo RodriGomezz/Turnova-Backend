@@ -5,8 +5,15 @@ import {
   IPaymentProvider,
   SubscriptionDetails,
 } from "../../application/ports/IPaymentProvider";
-import { SubscriptionPlan } from "../../domain/entities/Subscription";
-import { PLAN_PRICES, PLAN_NAMES } from "../../domain/plan-prices";
+import { SubscriptionPlan, BillingCycle } from "../../domain/entities/Subscription";
+import {
+  getPlanPrice,
+  getPlanName,
+  PLAN_PRICES_MONTHLY,
+  PLAN_PRICES_ANNUAL,
+  PLAN_NAMES_MONTHLY,
+  PLAN_NAMES_ANNUAL,
+} from "../../domain/plan-prices";
 
 // ── Tipos internos de dLocal Go ───────────────────────────────────────────────
 
@@ -69,8 +76,15 @@ interface DLocalGoPagedResponse<T> {
 
 const COUNTRY = "UY";
 const CURRENCY = "UYU";
-const FREQUENCY_TYPE = "MONTHLY";
-const FREQUENCY_VALUE = 1;
+
+/** Parámetros de frecuencia según ciclo de facturación */
+const FREQUENCY_PARAMS: Record<BillingCycle, { type: string; value: number }> = {
+  monthly: { type: "MONTHLY", value: 1 },
+  // dLocal Go representa anual como 12 meses de frecuencia mensual
+  // con un único cargo (o se puede usar YEARLY si el plan lo soporta).
+  // Ajustar según documentación actualizada de dLocal Go para UY.
+  annual:  { type: "MONTHLY", value: 12 },
+};
 
 function getBaseUrl(): string {
   return process.env.DLOCAL_SANDBOX === "true"
@@ -104,7 +118,10 @@ async function parseResponse<T>(
   try {
     body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
   } catch {
-    logger.error(`dLocal Go ${operation}: respuesta no es JSON`, { text, ...context });
+    logger.error(`dLocal Go ${operation}: respuesta no es JSON`, {
+      status: res.status,
+      ...context,
+    });
     throw new Error(`dLocal Go error: respuesta invalida (${res.status})`);
   }
 
@@ -133,14 +150,15 @@ export const dlocalGoClient: IPaymentProvider = {
     successUrl: string,
     backUrl: string,
     errorUrl: string,
+    cycle: BillingCycle = "monthly",
   ): Promise<CreateCheckoutResult> {
     const base = getBaseUrl();
     const auth = getAuthHeader();
-    const amount = PLAN_PRICES[plan];
-    const planName = PLAN_NAMES[plan];
+    const amount   = getPlanPrice(plan, cycle);
+    const planName = getPlanName(plan, cycle);
+    const freq     = FREQUENCY_PARAMS[cycle];
 
-    // 1. Buscar si ya existe un plan activo para este tier
-    logger.info("dLocal Go: buscando planes existentes", { plan });
+    logger.info("dLocal Go: buscando planes existentes", { plan, cycle });
 
     const listRes = await fetch(
       `${base}/v1/subscription/plan/all?page=1&page_size=50`,
@@ -150,7 +168,7 @@ export const dlocalGoClient: IPaymentProvider = {
     const listData = await parseResponse<DLocalGoPagedResponse<DLocalGoPlan>>(
       listRes,
       "listPlans",
-      { plan },
+      { plan, cycle },
     );
 
     const existing = listData.data.find(
@@ -159,20 +177,17 @@ export const dlocalGoClient: IPaymentProvider = {
         p.name === planName &&
         p.currency === CURRENCY &&
         p.amount === amount &&
-        p.frequency_type === FREQUENCY_TYPE &&
-        p.frequency_value === FREQUENCY_VALUE,
+        p.frequency_type === freq.type &&
+        p.frequency_value === freq.value,
     );
 
     if (existing) {
       logger.info("dLocal Go: plan existente encontrado, actualizando URLs", {
         planId: existing.id,
         planToken: existing.plan_token,
+        cycle,
       });
 
-      // Siempre hacer PATCH para actualizar las URLs de redirección.
-      // Si FRONTEND_URL cambió (ej: de localhost a producción), el plan
-      // en dLocal Go quedaría con las URLs viejas y el usuario sería
-      // redirigido al lugar equivocado tras el pago.
       const patchBody = JSON.stringify({
         notification_url: notificationUrl,
         success_url:      successUrl,
@@ -186,7 +201,6 @@ export const dlocalGoClient: IPaymentProvider = {
         body: patchBody,
       });
 
-      // Usar la subscribe_url del plan actualizado, no la vieja
       let subscribeUrl = existing.subscribe_url;
 
       if (!patchRes.ok) {
@@ -195,7 +209,6 @@ export const dlocalGoClient: IPaymentProvider = {
           status: patchRes.status,
         });
       } else {
-        // La respuesta del PATCH tiene la subscribe_url actualizada
         try {
           const patched = await patchRes.json() as DLocalGoPlan;
           subscribeUrl = patched.subscribe_url ?? existing.subscribe_url;
@@ -204,7 +217,9 @@ export const dlocalGoClient: IPaymentProvider = {
             subscribeUrl,
           });
         } catch {
-          logger.warn("dLocal Go: no se pudo leer respuesta del PATCH", { planId: existing.id });
+          logger.warn("dLocal Go: no se pudo leer respuesta del PATCH", {
+            planId: existing.id,
+          });
         }
       }
 
@@ -215,17 +230,17 @@ export const dlocalGoClient: IPaymentProvider = {
       };
     }
 
-    // 2. Crear el plan si no existe
-    logger.info("dLocal Go: creando nuevo plan", { plan, amount });
+    // Crear el plan si no existe
+    logger.info("dLocal Go: creando nuevo plan", { plan, cycle, amount });
 
     const body = JSON.stringify({
       name: planName,
-      description: `Kronu ${planName} - Facturación mensual`,
+      description: `Kronu ${planName} - Facturación ${cycle === "annual" ? "anual" : "mensual"}`,
       country: COUNTRY,
       currency: CURRENCY,
       amount,
-      frequency_type: FREQUENCY_TYPE,
-      frequency_value: FREQUENCY_VALUE,
+      frequency_type:  freq.type,
+      frequency_value: freq.value,
       notification_url: notificationUrl,
       success_url: successUrl,
       back_url: backUrl,
@@ -238,15 +253,19 @@ export const dlocalGoClient: IPaymentProvider = {
       body,
     });
 
-    const created = await parseResponse<DLocalGoPlan>(createRes, "createPlan", { plan });
+    const created = await parseResponse<DLocalGoPlan>(createRes, "createPlan", {
+      plan,
+      cycle,
+    });
 
     logger.info("dLocal Go: plan creado", {
       planId: created.id,
       planToken: created.plan_token,
+      cycle,
     });
 
     return {
-      planToken: created.plan_token,
+      planToken:    created.plan_token,
       subscribeUrl: created.subscribe_url,
       dlocalPlanId: created.id,
     };
@@ -302,12 +321,12 @@ export const dlocalGoClient: IPaymentProvider = {
     }
 
     return {
-      subscriptionId: sub.id,
+      subscriptionId:    sub.id,
       subscriptionToken: sub.subscription_token,
-      status: sub.status,
-      active: sub.active,
-      scheduledDate: sub.scheduled_date,
-      clientEmail: sub.client_email,
+      status:            sub.status,
+      active:            sub.active,
+      scheduledDate:     sub.scheduled_date,
+      clientEmail:       sub.client_email,
     };
   },
 
@@ -334,10 +353,10 @@ export const dlocalGoClient: IPaymentProvider = {
 
     return {
       executionId: data.id,
-      orderId: data.order_id,
-      status: data.status,
-      currency: data.currency,
-      amountPaid: data.amount_paid,
+      orderId:     data.order_id,
+      status:      data.status,
+      currency:    data.currency,
+      amountPaid:  data.amount_paid,
     };
   },
 };

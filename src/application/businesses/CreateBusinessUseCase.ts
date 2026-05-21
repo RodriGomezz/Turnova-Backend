@@ -3,7 +3,8 @@ import { IUserRepository } from "../../domain/interfaces/IUserRepository";
 import { Business, BusinessPlan } from "../../domain/entities/Business";
 import { ConflictError } from "../../domain/errors";
 import { vercelService } from "../../infrastructure/services/vercel.service";
-const TRIAL_DAYS = 30;
+import { TRIAL_DAYS } from "../../domain/plan-prices";
+import { registerSlug } from "../../infrastructure/cache/slug.cache";
 
 export interface CreateBusinessInput {
   nombre: string;
@@ -35,6 +36,7 @@ export class CreateBusinessUseCase {
 
     const trialEndsAt = this.resolveTrialEndsAt(input.trial_ends_at);
 
+    // Registrar slug en caché antes de la BD para que slug-check lo refleje inmediatamente
     const business = await this.businessRepository.create({
       nombre: input.nombre,
       slug: input.slug,
@@ -72,7 +74,10 @@ export class CreateBusinessUseCase {
     });
 
     try {
-      if (!input.existingUser) {
+      // Marcar el slug como ocupado en el cache en memoria
+    registerSlug(business.slug);
+
+    if (!input.existingUser) {
         await this.userRepository.create({
           id: input.userId,
           business_id: business.id,

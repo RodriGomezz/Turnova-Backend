@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { validate } from "../middlewares/validate.middleware";
 import { authMiddleware } from "../middlewares/auth.middleware";
-import { bookingLimiter } from "../middlewares/rateLimiter.middleware";
+import { bookingLimiter, slotLimiter } from "../middlewares/rateLimiter.middleware";
 import { createBookingSchema } from "../schemas/booking.schema";
 import { supabase } from "../../infrastructure/database/supabase.client";
 import { getCached, setCache } from "../../infrastructure/cache/public.cache";
@@ -21,7 +21,9 @@ router.post(
   validate(createBookingSchema),
   controller.createPanel,
 );
-router.patch("/panel/:id/estado", authMiddleware, controller.updateEstado);
+router.patch("/panel/:id/estado",  authMiddleware, controller.updateEstado);
+router.patch("/panel/:id/modify",  authMiddleware, controller.modifyBooking);
+router.patch("/panel/:id/cancel",  authMiddleware, controller.cancelBooking);
 router.get("/panel/month", authMiddleware, controller.getMonthSummary);
 // Junto a las otras rutas del panel
 router.get('/panel/day-summary', authMiddleware, controller.getDaySummary);
@@ -175,7 +177,10 @@ router.get("/public/domain/:domain", async (req, res, next) => {
 // ── Rutas públicas de reserva ──────────────────────────────────────────────
 
 router.get("/public/:slug/available-days", controller.getAvailableDays);
-router.get("/public/:slug/slots", bookingLimiter, controller.getAvailableSlots);
+// Precarga todos los slots del mes en una llamada — el cliente los cachea
+router.get("/public/:slug/available-days-with-slots", slotLimiter, controller.getAllSlotsForDays);
+// Mantener para compatibilidad con clientes que ya usan el endpoint individual
+router.get("/public/:slug/slots", slotLimiter, controller.getAvailableSlots);
 router.post(
   "/public/:slug",
   bookingLimiter,
