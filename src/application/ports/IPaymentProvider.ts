@@ -27,6 +27,7 @@ export interface SubscriptionDetails {
   active: boolean;
   scheduledDate: string | null;
   clientEmail: string | null;
+  createdAt?: string | null;
 }
 
 export interface IPaymentProvider {
@@ -54,6 +55,15 @@ export interface IPaymentProvider {
    * Consulta el estado de una suscripción en dLocal Go.
    */
   getSubscription(planId: number, subscriptionId: number): Promise<SubscriptionDetails>;
+
+  /**
+   * Busca la suscripción remota más reciente de un plan para un email.
+   * Útil para reconciliar el estado al volver del checkout hosted.
+   */
+  findLatestSubscriptionByPlanAndEmail(
+    planId: number,
+    email: string,
+  ): Promise<SubscriptionDetails | null>;
 
   /**
    * Consulta una ejecución puntual (cobro) de una suscripción.

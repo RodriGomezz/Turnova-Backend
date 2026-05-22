@@ -73,28 +73,8 @@ export class WebhookController {
       logger.info("Webhook dLocal Go recibido y verificado", {
         paymentId: payload.payment_id,
       });
-
-      if (!payload.payment_id) {
-        logger.warn("Webhook dLocal Go sin payment_id — ignorado", {
-          keys: Object.keys(payload),
-        });
-        res.status(200).json({ received: true });
-        return;
-      }
-
-      // Responder 200 inmediatamente antes de procesar para evitar que
-      // dLocal Go reintente por timeout mientras consultamos su API.
+      await this.handleWebhookUseCase.execute(payload);
       res.status(200).json({ received: true });
-
-      // Procesar de forma asíncrona — si falla, el error queda en los logs.
-      // dLocal Go reintentará el webhook cada 10 min por hasta 30 días,
-      // por lo que no perderemos el evento aunque el procesamiento falle.
-      this.handleWebhookUseCase.execute(payload).catch((err) => {
-        logger.error("Error procesando webhook dLocal Go", {
-          paymentId: payload.payment_id,
-          err,
-        });
-      });
 
     } catch (error) {
       next(error);

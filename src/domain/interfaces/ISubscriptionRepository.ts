@@ -11,6 +11,10 @@ export interface ISubscriptionRepository {
   findByPlanToken(planToken: string): Promise<Subscription | null>;
   /** Busca por subscription_token de dLocal Go */
   findBySubscriptionToken(subscriptionToken: string): Promise<Subscription | null>;
+  /** Busca por ID numérico de suscripción de dLocal Go */
+  findByDlocalSubscriptionId(subscriptionId: number): Promise<Subscription | null>;
+  /** Busca por payment_id de dLocal Go */
+  findByPaymentId(paymentId: string): Promise<Subscription | null>;
   /** Busca por ID de ejecución (order_id del cobro) */
   findByExecutionId(executionId: string): Promise<Subscription | null>;
 

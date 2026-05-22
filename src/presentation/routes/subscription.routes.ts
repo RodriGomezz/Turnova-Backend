@@ -34,6 +34,7 @@ router.get("/history", subscriptionController.getHistory);
 router.get("/confirm-stream", subscriptionController.confirmStream);
 
 router.post("/create", validate(createSubscriptionSchema), subscriptionController.create);
+router.post("/reconcile", subscriptionController.reconcile);
 router.post("/cancel", validate(cancelSubscriptionSchema), subscriptionController.cancel);
 
 export default router;

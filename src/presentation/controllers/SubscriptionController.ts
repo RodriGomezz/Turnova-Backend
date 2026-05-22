@@ -8,6 +8,7 @@ import { AppError, NotFoundError }          from "../../domain/errors";
 import { CreateSubscriptionInput }          from "../schemas/subscription.schema";
 import { logger }                           from "../../infrastructure/logger";
 import { SseService }                       from "../../infrastructure/sse/sse.service";
+import { HandleWebhookUseCase }             from "../../application/subscriptions/HandleWebhookUseCase";
 
 export class SubscriptionController {
   constructor(
@@ -16,6 +17,7 @@ export class SubscriptionController {
     private readonly createSubscriptionUseCase: CreateSubscriptionUseCase,
     private readonly userRepository:           IUserRepository,
     private readonly businessRepository:       IBusinessRepository,
+    private readonly handleWebhookUseCase:     HandleWebhookUseCase,
   ) {}
 
   /** GET /api/subscriptions */
@@ -132,6 +134,84 @@ export class SubscriptionController {
       res.json({
         subscribeUrl: result.subscribeUrl,
         planToken:    result.planToken,
+        subscriptionId: result.subscriptionId,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /** POST /api/subscriptions/reconcile */
+  reconcile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const activeSubscription =
+        await this.subscriptionRepository.findCurrentEffectiveByBusinessId(req.businessId!);
+      if (activeSubscription?.status === "active") {
+        res.json({ confirmed: true, activeSubscription });
+        return;
+      }
+
+      const pending =
+        await this.subscriptionRepository.findPendingByBusinessId(req.businessId!);
+      if (!pending) {
+        res.json({ confirmed: false, reason: "no_pending" });
+        return;
+      }
+
+      if (!pending.dlocal_plan_id || !pending.payer_email) {
+        res.json({ confirmed: false, reason: "missing_context" });
+        return;
+      }
+
+      const remote =
+        await this.paymentProvider.findLatestSubscriptionByPlanAndEmail(
+          pending.dlocal_plan_id,
+          pending.payer_email,
+        );
+
+      if (!remote) {
+        res.json({ confirmed: false, reason: "not_found" });
+        return;
+      }
+
+      if (
+        remote.createdAt &&
+        !Number.isNaN(Date.parse(remote.createdAt)) &&
+        Date.parse(remote.createdAt) < Date.parse(pending.created_at)
+      ) {
+        res.json({ confirmed: false, reason: "stale_remote_subscription" });
+        return;
+      }
+
+      await this.subscriptionRepository.updateStatus(pending.id, pending.status, {
+        dlocal_subscription_id: remote.subscriptionId,
+        dlocal_subscription_token: remote.subscriptionToken,
+        payer_email: remote.clientEmail ?? pending.payer_email,
+      });
+
+      if (remote.status === "CONFIRMED" || remote.active) {
+        await this.handleWebhookUseCase.execute({
+          external_id: pending.id,
+          subscription_id: remote.subscriptionId,
+          subscription_token: remote.subscriptionToken,
+          client_email: remote.clientEmail ?? pending.payer_email ?? undefined,
+          status: remote.status,
+        });
+
+        const refreshed =
+          await this.subscriptionRepository.findCurrentEffectiveByBusinessId(req.businessId!);
+
+        res.json({
+          confirmed: refreshed?.status === "active",
+          activeSubscription: refreshed,
+        });
+        return;
+      }
+
+      res.json({
+        confirmed: false,
+        reason: "still_pending",
+        remoteStatus: remote.status,
       });
     } catch (error) {
       next(error);

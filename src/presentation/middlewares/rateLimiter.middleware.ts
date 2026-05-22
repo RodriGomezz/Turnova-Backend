@@ -1,4 +1,9 @@
-import rateLimit, { Options, RateLimitExceededEventHandler, RateLimitRequestHandler } from 'express-rate-limit';
+import rateLimit, {
+  ipKeyGenerator,
+  Options,
+  RateLimitExceededEventHandler,
+  RateLimitRequestHandler,
+} from 'express-rate-limit';
 import { Request } from 'express';
 import { logger } from '../../infrastructure/logger';
 
@@ -30,7 +35,7 @@ function makeHandler(message: string): RateLimitExceededEventHandler {
 function getAuthIdentityKey(req: Request): string {
   const rawEmail = typeof req.body?.email === 'string' ? req.body.email : '';
   const email    = rawEmail.trim().toLowerCase();
-  return `${req.ip}:${email || 'anon'}`;
+  return `${ipKeyGenerator(req.ip ?? '')}:${email || 'anon'}`;
 }
 
 /**
@@ -50,27 +55,29 @@ function getPanelIdentityKey(req: Request): string {
   try {
     const authHeader = req.headers.authorization ?? '';
     const token      = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (!token) return req.ip ?? 'unknown';
+    if (!token) return ipKeyGenerator(req.ip ?? '');
 
     const payload = JSON.parse(
       Buffer.from(token.split('.')[1], 'base64url').toString('utf8'),
     );
 
     // sub es el userId de Supabase — estable y único por usuario
-    return typeof payload.sub === 'string' ? `user:${payload.sub}` : (req.ip ?? 'unknown');
+    return typeof payload.sub === 'string'
+      ? `user:${payload.sub}`
+      : ipKeyGenerator(req.ip ?? '');
   } catch {
-    return req.ip ?? 'unknown';
+    return ipKeyGenerator(req.ip ?? '');
   }
 }
 
 // ── generalLimiter ────────────────────────────────────────────────────────────
 // Rutas del panel autenticado. Key por userId — cada usuario tiene su propia
 // cuota, independientemente de cuántos compartan la misma IP de oficina.
-// 600 req/15min = 40 req/min sostenidos → imposible de alcanzar en uso normal.
-// Aumentado de 500 a 600 para absorber sesiones intensas sin riesgo de bloqueo.
+// 1200 req/15min = 80 req/min sostenidos por usuario.
+// Más margen para equipos con varias sucursales y varias vistas abiertas.
 export const generalLimiter: RateLimitRequestHandler = rateLimit({
   windowMs:       15 * 60 * 1000,
-  max:            600,
+  max:            1200,
   standardHeaders: true,
   legacyHeaders:  false,
   skip:           () => isRateLimitDisabled,
@@ -123,10 +130,10 @@ export const authBurstLimiter: RateLimitRequestHandler = rateLimit({
 // ── refreshLimiter ────────────────────────────────────────────────────────────
 // Refresh de token — automático y transparente al usuario.
 // Key por userId extraído del token (el refresh token tiene sub en el payload).
-// 60 refrescos en 15 min: imposible de alcanzar en uso legítimo.
+// 120 refrescos en 15 min: margen amplio para varias pestañas y sesiones largas.
 export const refreshLimiter: RateLimitRequestHandler = rateLimit({
   windowMs:        15 * 60 * 1000,
-  max:             60,
+  max:             120,
   standardHeaders: true,
   legacyHeaders:   false,
   skip:            () => isRateLimitDisabled,
@@ -136,10 +143,10 @@ export const refreshLimiter: RateLimitRequestHandler = rateLimit({
 
 // ── uploadLimiter ─────────────────────────────────────────────────────────────
 // Subida de archivos — costoso en storage, límite bajo.
-// Key por userId — un usuario no debería subir más de 20 fotos en 15 min.
+// Key por userId — suficiente margen para configurar branding/galería sin bloqueo.
 export const uploadLimiter: RateLimitRequestHandler = rateLimit({
   windowMs:        15 * 60 * 1000,
-  max:             20,
+  max:             40,
   standardHeaders: true,
   legacyHeaders:   false,
   skip:            () => isRateLimitDisabled,

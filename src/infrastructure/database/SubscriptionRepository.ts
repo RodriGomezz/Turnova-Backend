@@ -95,6 +95,26 @@ export class SubscriptionRepository implements ISubscriptionRepository {
     return data as Subscription;
   }
 
+  async findByDlocalSubscriptionId(subscriptionId: number): Promise<Subscription | null> {
+    const { data, error } = await supabase
+      .from(this.table).select("*")
+      .eq("dlocal_subscription_id", subscriptionId)
+      .single();
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Subscription;
+  }
+
+  async findByPaymentId(paymentId: string): Promise<Subscription | null> {
+    const { data, error } = await supabase
+      .from(this.table).select("*")
+      .eq("dlocal_payment_id", paymentId)
+      .single();
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Subscription;
+  }
+
   async findByExecutionId(executionId: string): Promise<Subscription | null> {
     const { data, error } = await supabase
       .from(this.table).select("*")

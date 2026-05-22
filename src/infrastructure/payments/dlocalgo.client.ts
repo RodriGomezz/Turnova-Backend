@@ -46,6 +46,7 @@ interface DLocalGoSubscription {
   active: boolean;
   scheduled_date: string | null;
   client_email: string | null;
+  created_at?: string;
   plan: DLocalGoPlan;
 }
 
@@ -327,6 +328,56 @@ export const dlocalGoClient: IPaymentProvider = {
       active:            sub.active,
       scheduledDate:     sub.scheduled_date,
       clientEmail:       sub.client_email,
+      createdAt:         sub.created_at ?? null,
+    };
+  },
+
+  async findLatestSubscriptionByPlanAndEmail(
+    planId: number,
+    email: string,
+  ): Promise<SubscriptionDetails | null> {
+    logger.info("dLocal Go: buscando suscripción reciente por plan/email", {
+      planId,
+      email,
+    });
+
+    const res = await fetch(
+      `${getBaseUrl()}/v1/subscription/plan/${planId}/subscription/all?page=1&page_size=100`,
+      {
+        headers: {
+          Authorization: getAuthHeader(),
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    const data = await parseResponse<DLocalGoPagedResponse<DLocalGoSubscription>>(
+      res,
+      "findLatestSubscriptionByPlanAndEmail",
+      { planId, email },
+    );
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const candidates = data.data
+      .filter((sub) => (sub.client_email ?? "").trim().toLowerCase() === normalizedEmail)
+      .sort((a, b) => {
+        const aTime = a.created_at ? Date.parse(a.created_at) : 0;
+        const bTime = b.created_at ? Date.parse(b.created_at) : 0;
+        if (aTime !== bTime) return bTime - aTime;
+        return b.id - a.id;
+      });
+
+    const sub = candidates[0];
+    if (!sub) return null;
+
+    return {
+      subscriptionId: sub.id,
+      subscriptionToken: sub.subscription_token,
+      status: sub.status,
+      active: sub.active,
+      scheduledDate: sub.scheduled_date,
+      clientEmail: sub.client_email,
+      createdAt: sub.created_at ?? null,
     };
   },
 

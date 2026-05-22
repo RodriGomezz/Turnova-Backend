@@ -170,6 +170,7 @@ export const subscriptionController = new SubscriptionController(
   createSubscriptionUseCase,
   userRepository,
   businessRepository,
+  handleWebhookUseCase,
 );
 
 export const webhookController = new WebhookController(handleWebhookUseCase);

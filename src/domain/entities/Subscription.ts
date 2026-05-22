@@ -29,6 +29,8 @@ export interface Subscription {
   dlocal_subscription_id: number | null;
   /** subscription_token de dLocal Go */
   dlocal_subscription_token: string | null;
+  /** payment_id del checkout inicial o de la última notificación, si dLocal Go lo envía */
+  dlocal_payment_id?: string | null;
   /** ID/order_id de la última ejecución (cobro) */
   dlocal_last_execution_id: string | null;
 

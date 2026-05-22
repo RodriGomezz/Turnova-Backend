@@ -86,6 +86,10 @@ function makeRepo(sub: Subscription | null) {
       sub?.dlocal_plan_token === token ? sub : null,
     findBySubscriptionToken: async (token) =>
       sub?.dlocal_subscription_token === token ? sub : null,
+    findByDlocalSubscriptionId: async (id) =>
+      sub?.dlocal_subscription_id === id ? sub : null,
+    findByPaymentId: async (paymentId) =>
+      sub?.dlocal_payment_id === paymentId ? sub : null,
     findByExecutionId: async (executionId) =>
       sub?.dlocal_last_execution_id === executionId ? sub : null,
     findExpiredGracePeriods: async () => [],

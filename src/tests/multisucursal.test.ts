@@ -90,6 +90,8 @@ function makeUC(sub: Subscription, biz: Business) {
     findPendingByBusinessId: async () => (sub.status === "pending" ? sub : null),
     findByPlanToken: async () => null,
     findBySubscriptionToken: async () => null,
+    findByDlocalSubscriptionId: async () => null,
+    findByPaymentId: async () => null,
     findByExecutionId: async () => null,
     findExpiredGracePeriods: async () => [],
     findEndedCanceledSubscriptions: async () => [],

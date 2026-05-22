@@ -12,6 +12,8 @@ import { SseService } from "../../infrastructure/sse/sse.service";
  * Payload real que dLocal Go envía al notification_url.
  */
 export interface DLocalGoWebhookPayload {
+  payment_id?: string;
+  paymentId?: string;
   // Formato real observado (camelCase)
   invoiceId?: string;         // = order_id, formato ST-{token}-{n}
   subscriptionId?: number;    // ID numérico de la suscripción en dLocal Go
@@ -78,6 +80,7 @@ export class HandleWebhookUseCase {
   private normalizePayload(p: DLocalGoWebhookPayload): DLocalGoWebhookPayload {
     return {
       ...p,
+      payment_id:      p.payment_id      ?? p.paymentId,
       external_id:     p.external_id     ?? p.externalId,
       subscription_id: p.subscription_id ?? p.subscriptionId,
       order_id:        p.order_id        ?? p.invoiceId,
@@ -90,10 +93,19 @@ export class HandleWebhookUseCase {
     if (["DECLINED", "FAILED", "REJECTED"].includes(status)) return "PAYMENT_FAILED";
     if (["CANCELLED", "CANCELED"].includes(status))           return "SUBSCRIPTION_CANCELLED";
 
-    const hasInvoice       = !!(p.order_id ?? p.invoiceId);
+    const hasInvoice = !!(p.order_id ?? p.invoiceId);
+    const hasSubscriptionReference = !!(
+      p.subscription_id ??
+      p.subscriptionId ??
+      p.subscription_token ??
+      p.external_id ??
+      p.externalId
+    );
     const hasPositiveStatus = ["CONFIRMED", "COMPLETED", "PAID", "APPROVED", ""].includes(status);
 
-    if (hasInvoice && hasPositiveStatus) return "PAYMENT_SUCCESS";
+    if ((hasInvoice || hasSubscriptionReference) && hasPositiveStatus) {
+      return "PAYMENT_SUCCESS";
+    }
 
     return `UNKNOWN:${status}`;
   }
@@ -313,8 +325,20 @@ export class HandleWebhookUseCase {
       if (sub) return sub;
     }
 
+    if (payload.subscription_id) {
+      const sub = await this.subscriptionRepository.findByDlocalSubscriptionId(
+        payload.subscription_id,
+      );
+      if (sub) return sub;
+    }
+
     if (payload.plan_token) {
       const sub = await this.subscriptionRepository.findByPlanToken(payload.plan_token);
+      if (sub) return sub;
+    }
+
+    if (payload.payment_id) {
+      const sub = await this.subscriptionRepository.findByPaymentId(payload.payment_id);
       if (sub) return sub;
     }
 
