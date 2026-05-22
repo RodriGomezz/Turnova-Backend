@@ -8,6 +8,7 @@ export interface GetAvailableSlotsInput {
   fecha: string;
   duracionMinutos: number;
   bufferMinutos: number;
+  excludeBookingId?: string;
 }
 
 export interface TimeSlot {
@@ -48,6 +49,9 @@ export class GetAvailableSlotsUseCase {
     ]);
 
     if (isBlocked || !schedule) return [];
+    const bookings = input.excludeBookingId
+      ? existingBookings.filter((booking) => booking.id !== input.excludeBookingId)
+      : existingBookings;
 
     const slots = this.generateSlots(
       this.normalizeTime(schedule.hora_inicio),
@@ -58,7 +62,7 @@ export class GetAvailableSlotsUseCase {
 
     return slots.map((slot) => ({
       ...slot,
-      disponible: !this.isSlotTaken(slot, existingBookings),
+      disponible: !this.isSlotTaken(slot, bookings),
     }));
   }
 

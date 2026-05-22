@@ -50,18 +50,23 @@ export class BookingController {
         fecha,
       );
       const uniqueEmails = [...new Set(bookings.map((booking) => booking.cliente_email))];
-      const previousEmails =
-        uniqueEmails.length > 0
-          ? await this.bookingRepository.findEmailsByBusiness(
+      const uniquePhones = [...new Set(bookings.map((booking) => booking.cliente_telefono))];
+      const previousClients =
+        uniqueEmails.length > 0 || uniquePhones.length > 0
+          ? await this.bookingRepository.findPreviousClientMatchesByBusiness(
               req.businessId!,
               fecha,
               uniqueEmails,
+              uniquePhones,
             )
           : [];
-      const previousEmailSet = new Set(previousEmails);
+      const previousEmailSet = new Set(previousClients.map((client) => client.cliente_email));
+      const previousPhoneSet = new Set(previousClients.map((client) => client.cliente_telefono));
       const enrichedBookings = bookings.map((booking) => ({
         ...booking,
-        cliente_tipo: previousEmailSet.has(booking.cliente_email)
+        cliente_tipo:
+          previousEmailSet.has(booking.cliente_email) ||
+          previousPhoneSet.has(booking.cliente_telefono)
           ? "recurrente"
           : "nuevo",
       }));
@@ -133,18 +138,25 @@ getMonthFull = async (req: Request, res: Response, next: NextFunction): Promise<
 
     // Enriquecer con cliente_tipo igual que listByDate
     const uniqueEmails = [...new Set(bookings.map((b) => b.cliente_email))];
-    const previousEmails = uniqueEmails.length > 0
-      ? await this.bookingRepository.findEmailsByBusiness(
+    const uniquePhones = [...new Set(bookings.map((b) => b.cliente_telefono))];
+    const previousClients = uniqueEmails.length > 0 || uniquePhones.length > 0
+      ? await this.bookingRepository.findPreviousClientMatchesByBusiness(
           req.businessId!,
           `${year}-${month.toString().padStart(2, '0')}-01`,
           uniqueEmails,
+          uniquePhones,
         )
       : [];
-    const previousEmailSet = new Set(previousEmails);
+    const previousEmailSet = new Set(previousClients.map((client) => client.cliente_email));
+    const previousPhoneSet = new Set(previousClients.map((client) => client.cliente_telefono));
 
     const enriched = bookings.map((b) => ({
       ...b,
-      cliente_tipo: previousEmailSet.has(b.cliente_email) ? 'recurrente' : 'nuevo',
+      cliente_tipo:
+        previousEmailSet.has(b.cliente_email) ||
+        previousPhoneSet.has(b.cliente_telefono)
+          ? 'recurrente'
+          : 'nuevo',
     }));
 
     res.json({ bookings: enriched, year, month });
@@ -259,6 +271,7 @@ getMonthFull = async (req: Request, res: Response, next: NextFunction): Promise<
         fecha,
         duracionMinutos: service.duracion_minutos,
         bufferMinutos: business.buffer_minutos,
+        excludeBookingId: (req.query["exclude_booking_id"] as string) || undefined,
       });
 
       res.json({ slots, fecha });
@@ -270,7 +283,7 @@ getMonthFull = async (req: Request, res: Response, next: NextFunction): Promise<
   getAvailableDays = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const slug = req.params["slug"] as string;
-      const { year, month, barber_id, service_id } = req.query;
+      const { year, month, barber_id, service_id, exclude_booking_id } = req.query;
 
       const y = parseInt((year as string) ?? new Date().getFullYear().toString());
       const m = parseInt((month as string) ?? (new Date().getMonth() + 1).toString());
@@ -475,7 +488,7 @@ getMonthFull = async (req: Request, res: Response, next: NextFunction): Promise<
   getAllSlotsForDays = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const slug      = req.params["slug"] as string;
-      const { year, month, barber_id, service_id } = req.query;
+      const { year, month, barber_id, service_id, exclude_booking_id } = req.query;
 
       const y = parseInt((year  as string) ?? new Date().getFullYear().toString());
       const m = parseInt((month as string) ?? (new Date().getMonth() + 1).toString());
@@ -503,17 +516,27 @@ getMonthFull = async (req: Request, res: Response, next: NextFunction): Promise<
       }
 
       // Cache hit
-      const cached = getSlotsFromCache(business.id, barberId, serviceId, y, m);
+      const shouldUseCache = !exclude_booking_id;
+      const cached = shouldUseCache
+        ? getSlotsFromCache(business.id, barberId, serviceId, y, m)
+        : null;
       if (cached) {
         res.json(cached);
         return;
       }
 
       const result = await this.getAllSlotsForDaysUseCase.execute({
-        slug, year: y, month: m, barberId, serviceId,
+        slug,
+        year: y,
+        month: m,
+        barberId,
+        serviceId,
+        excludeBookingId: (exclude_booking_id as string) || undefined,
       });
 
-      setSlotsCache(business.id, barberId, serviceId, y, m, result);
+      if (shouldUseCache) {
+        setSlotsCache(business.id, barberId, serviceId, y, m, result);
+      }
 
       // Transformar al formato esperado por el frontend:
       // { availableDays: string[], slots: Record<string, TimeSlot[]> }

@@ -263,15 +263,31 @@ export class GetDaySummaryUseCase {
     activos: BookingWithService[],
   ): Promise<number> {
     const emailsHoy = [...new Set(activos.map((b) => b.cliente_email))];
-    if (emailsHoy.length === 0) return 0;
+    const phonesHoy = [...new Set(activos.map((b) => b.cliente_telefono))];
+    if (emailsHoy.length === 0 && phonesHoy.length === 0) return 0;
 
-    const emailsPrevios = await this.bookingRepository.findEmailsByBusiness(
+    const previousClients = await this.bookingRepository.findPreviousClientMatchesByBusiness(
       businessId,
       fecha,
       emailsHoy,
+      phonesHoy,
     );
-    const setPrevios = new Set(emailsPrevios);
-    return emailsHoy.filter((e) => !setPrevios.has(e)).length;
+    const previousEmailSet = new Set(previousClients.map((client) => client.cliente_email));
+    const previousPhoneSet = new Set(previousClients.map((client) => client.cliente_telefono));
+
+    return activos.filter((booking, index, array) => {
+      const firstMatchIndex = array.findIndex(
+        (candidate) =>
+          candidate.cliente_email === booking.cliente_email &&
+          candidate.cliente_telefono === booking.cliente_telefono,
+      );
+      if (firstMatchIndex !== index) return false;
+
+      return (
+        !previousEmailSet.has(booking.cliente_email) &&
+        !previousPhoneSet.has(booking.cliente_telefono)
+      );
+    }).length;
   }
 
   private buildBarberSummaries(

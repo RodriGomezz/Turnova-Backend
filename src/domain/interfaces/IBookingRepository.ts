@@ -15,13 +15,19 @@ export interface IBookingRepository {
     businessId: string,
     from: string,
     to: string,
-  ): Promise<Pick<Booking, "fecha" | "hora_inicio" | "hora_fin">[]>;
+  ): Promise<Pick<Booking, "id" | "fecha" | "hora_inicio" | "hora_fin">[]>;
   findPendingReminders(): Promise<Booking[]>;
   findEmailsByBusiness(
     businessId: string,
     beforeFecha: string,
     emails: string[],
   ): Promise<string[]>;
+  findPreviousClientMatchesByBusiness(
+    businessId: string,
+    beforeFecha: string,
+    emails: string[],
+    phones: string[],
+  ): Promise<Array<{ cliente_email: string; cliente_telefono: string }>>;
   create(data: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at">): Promise<Booking>;
   updateEstado(id: string, estado: BookingEstado): Promise<Booking>;
   modify(

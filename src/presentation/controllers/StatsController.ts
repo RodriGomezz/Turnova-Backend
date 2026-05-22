@@ -44,7 +44,7 @@ export class StatsController {
         supabase
           .from("bookings")
           .select(
-            "id, estado, fecha, hora_inicio, barber_id, service_id, cliente_email, services(nombre, precio)",
+            "id, estado, fecha, hora_inicio, barber_id, service_id, cliente_email, cliente_telefono, services(nombre, precio)",
           )
           .in("business_id", targetBusinessIds)
           .gte("fecha", from)
@@ -141,26 +141,71 @@ export class StatsController {
 
       // ── Clientes nuevos vs recurrentes ─────────────────────────────────────
       // Clientes que reservaron antes del mes actual
-      const emailsActivos = [...new Set(activos.map((b) => b.cliente_email))];
+      const activeClients = Array.from(
+        new Map(
+          activos.map((booking) => [
+            `${booking.cliente_email}::${booking.cliente_telefono}`,
+            {
+              cliente_email: booking.cliente_email,
+              cliente_telefono: booking.cliente_telefono,
+            },
+          ]),
+        ).values(),
+      );
       let clientesNuevos = 0;
       let clientesRecurrentes = 0;
 
-      if (emailsActivos.length > 0) {
-        const { data: prevClients } = await supabase
-          .from("bookings")
-          .select("cliente_email")
-          .in("business_id", targetBusinessIds)
-          .lt("fecha", from)
-          .neq("estado", "cancelada")
-          .in("cliente_email", emailsActivos);
+      if (activeClients.length > 0) {
+        const emailsActivos = [...new Set(activeClients.map((client) => client.cliente_email))];
+        const phonesActivos = [...new Set(activeClients.map((client) => client.cliente_telefono))];
 
-        const emailsPrevios = new Set(
-          (prevClients ?? []).map((b) => b.cliente_email),
-        );
+        const requests = [];
 
-        for (const email of emailsActivos) {
-          if (emailsPrevios.has(email)) clientesRecurrentes++;
-          else clientesNuevos++;
+        if (emailsActivos.length > 0) {
+          requests.push(
+            supabase
+              .from("bookings")
+              .select("cliente_email, cliente_telefono")
+              .in("business_id", targetBusinessIds)
+              .lt("fecha", from)
+              .neq("estado", "cancelada")
+              .in("cliente_email", emailsActivos),
+          );
+        }
+
+        if (phonesActivos.length > 0) {
+          requests.push(
+            supabase
+              .from("bookings")
+              .select("cliente_email, cliente_telefono")
+              .in("business_id", targetBusinessIds)
+              .lt("fecha", from)
+              .neq("estado", "cancelada")
+              .in("cliente_telefono", phonesActivos),
+          );
+        }
+
+        const results = await Promise.all(requests);
+        const previousEmailSet = new Set<string>();
+        const previousPhoneSet = new Set<string>();
+
+        for (const result of results) {
+          if (result.error) throw new AppError(result.error.message, 500);
+          for (const client of result.data ?? []) {
+            previousEmailSet.add(client.cliente_email);
+            previousPhoneSet.add(client.cliente_telefono);
+          }
+        }
+
+        for (const client of activeClients) {
+          if (
+            previousEmailSet.has(client.cliente_email) ||
+            previousPhoneSet.has(client.cliente_telefono)
+          ) {
+            clientesRecurrentes++;
+          } else {
+            clientesNuevos++;
+          }
         }
       }
 

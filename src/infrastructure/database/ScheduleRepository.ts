@@ -91,14 +91,25 @@ export class ScheduleRepository implements IScheduleRepository {
     }
 
     // Con barberId → precedencia barbero > negocio, por día.
-    //
-    // Dos pasadas garantizan que el orden de llegada no afecta el resultado:
-    //   1. Sembrar con schedules del negocio
-    //   2. Sobreescribir con schedules del barbero (siempre ganan)
-    const barberSchedules = schedules.filter((s) => s.barber_id === barberId);
-    if (barberSchedules.length > 0) return barberSchedules;
+    // Si el barbero tiene horario propio solo para algunos días,
+    // los días faltantes deben seguir heredando del negocio.
+    const byDay = new Map<number, Schedule>();
 
-    return schedules.filter((s) => s.barber_id === null);
+    schedules
+      .filter((s) => s.barber_id === null)
+      .forEach((schedule) => {
+        byDay.set(schedule.dia_semana, schedule);
+      });
+
+    schedules
+      .filter((s) => s.barber_id === barberId)
+      .forEach((schedule) => {
+        byDay.set(schedule.dia_semana, schedule);
+      });
+
+    return Array.from(byDay.values()).sort(
+      (a, b) => a.dia_semana - b.dia_semana,
+    );
   }
 
   async findRawByBusiness(businessId: string): Promise<Schedule[]> {

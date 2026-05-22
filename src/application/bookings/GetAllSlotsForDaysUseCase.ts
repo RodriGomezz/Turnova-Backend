@@ -54,6 +54,7 @@ export interface GetAllSlotsForDaysInput {
   month: number;
   barberId: string;
   serviceId?: string;
+  excludeBookingId?: string;
 }
 
 export interface GetAllSlotsForDaysResult {
@@ -101,6 +102,9 @@ export class GetAllSlotsForDaysUseCase {
         lastDayStr,
       ),
     ]);
+    const bookings = input.excludeBookingId
+      ? existingBookings.filter((booking) => booking.id !== input.excludeBookingId)
+      : existingBookings;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -121,7 +125,7 @@ export class GetAllSlotsForDaysUseCase {
       );
       if (!schedule) continue;
 
-      const bookingsDelDia = existingBookings.filter((b) => b.fecha === dateStr);
+      const bookingsDelDia = bookings.filter((b) => b.fecha === dateStr);
       const slots = this.generateSlots(
         schedule.hora_inicio,
         schedule.hora_fin,

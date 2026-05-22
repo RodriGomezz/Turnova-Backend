@@ -86,10 +86,10 @@ export class BookingRepository implements IBookingRepository {
     businessId: string,
     from: string,
     to: string,
-  ): Promise<Pick<Booking, "fecha" | "hora_inicio" | "hora_fin">[]> {
+  ): Promise<Pick<Booking, "id" | "fecha" | "hora_inicio" | "hora_fin">[]> {
     let query = supabase
       .from(this.table)
-      .select("fecha, hora_inicio, hora_fin")
+      .select("id, fecha, hora_inicio, hora_fin")
       .eq("business_id", businessId)
       .neq("estado", "cancelada")
       .gte("fecha", from)
@@ -101,7 +101,7 @@ export class BookingRepository implements IBookingRepository {
 
     const { data, error } = await query;
     if (error) throw new AppError(error.message, 500);
-    return (data ?? []) as Pick<Booking, "fecha" | "hora_inicio" | "hora_fin">[];
+    return (data ?? []) as Pick<Booking, "id" | "fecha" | "hora_inicio" | "hora_fin">[];
   }
 
   async findPendingReminders(): Promise<Booking[]> {
@@ -135,6 +135,54 @@ export class BookingRepository implements IBookingRepository {
 
     if (error) throw new AppError(error.message, 500);
     return (data ?? []).map((b: { cliente_email: string }) => b.cliente_email);
+  }
+
+  async findPreviousClientMatchesByBusiness(
+    businessId: string,
+    beforeFecha: string,
+    emails: string[],
+    phones: string[],
+  ): Promise<Array<{ cliente_email: string; cliente_telefono: string }>> {
+    const requests: PromiseLike<{
+      data: { cliente_email: string; cliente_telefono: string }[] | null;
+      error: { message: string } | null;
+    }>[] = [];
+
+    if (emails.length > 0) {
+      requests.push(
+        supabase
+          .from(this.table)
+          .select("cliente_email, cliente_telefono")
+          .eq("business_id", businessId)
+          .lt("fecha", beforeFecha)
+          .neq("estado", "cancelada")
+          .in("cliente_email", emails),
+      );
+    }
+
+    if (phones.length > 0) {
+      requests.push(
+        supabase
+          .from(this.table)
+          .select("cliente_email, cliente_telefono")
+          .eq("business_id", businessId)
+          .lt("fecha", beforeFecha)
+          .neq("estado", "cancelada")
+          .in("cliente_telefono", phones),
+      );
+    }
+
+    if (requests.length === 0) return [];
+
+    const results = await Promise.all(requests);
+    const merged: Array<{ cliente_email: string; cliente_telefono: string }> = [];
+
+    for (const result of results) {
+      if (result.error) throw new AppError(result.error.message, 500);
+      merged.push(...(result.data ?? []));
+    }
+
+    return merged;
   }
 
   async create(
