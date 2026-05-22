@@ -65,7 +65,7 @@ export class CreateSubscriptionUseCase {
 
     const notificationUrl = `${apiBase}/api/subscriptions/dlocal`;
     const successUrl = `${frontendBase}/panel/configuracion?status=success&tab=planes`;
-    const backUrl    = `${frontendBase}/panel/configuracion?status=canceled&tab=planes`;
+    const backUrl    = `${frontendBase}/panel/configuracion?status=back&tab=planes`;
     const errorUrl   = `${frontendBase}/panel/configuracion?status=error&tab=planes`;
 
     // Obtener o crear el plan en dLocal Go (distinguido por cycle)
