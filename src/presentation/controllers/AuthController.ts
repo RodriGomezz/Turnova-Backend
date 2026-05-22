@@ -355,6 +355,9 @@ export class AuthController {
         trial_ends_at: null,
       });
 
+      await this.userRepository.update(userId, { business_id: branch.id });
+      invalidateUserCache(userId);
+
       res.status(201).json({
         message: "Sucursal creada correctamente",
         business: { id: branch.id, slug: branch.slug, nombre: branch.nombre },

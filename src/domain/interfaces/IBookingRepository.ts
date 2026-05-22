@@ -32,7 +32,7 @@ export interface IBookingRepository {
       hora_fin: string;
       barber_id: string;
       service_id: string;
-      estado: "modificada";
+      estado: BookingEstado;
       modified_at: string;
     },
   ): Promise<Booking>;

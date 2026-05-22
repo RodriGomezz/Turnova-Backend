@@ -30,6 +30,12 @@ export class ModifyBookingUseCase {
     if (booking.estado === "cancelada") {
       throw new AppError("No se puede modificar una reserva cancelada", 400);
     }
+    if (booking.fecha < this.todayString()) {
+      throw new AppError("Solo se pueden modificar reservas de hoy en adelante", 400);
+    }
+    if (input.fecha < this.todayString()) {
+      throw new AppError("No se puede mover una reserva a una fecha pasada", 400);
+    }
 
     const targetBarberId = input.barberId ?? booking.barber_id;
 
@@ -68,7 +74,7 @@ export class ModifyBookingUseCase {
       hora_fin:    input.horaFin,
       barber_id:   targetBarberId,
       service_id:  input.serviceId ?? booking.service_id,
-      estado:      "modificada",
+      estado:      booking.estado === "confirmada" ? "confirmada" : "pendiente",
       modified_at: new Date().toISOString(),
     });
 
@@ -82,5 +88,9 @@ export class ModifyBookingUseCase {
   private toMin(time: string): number {
     const [h, m] = time.slice(0, 5).split(":").map(Number);
     return h * 60 + m;
+  }
+
+  private todayString(): string {
+    return new Date().toISOString().slice(0, 10);
   }
 }

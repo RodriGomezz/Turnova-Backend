@@ -150,6 +150,7 @@ export class HandleWebhookUseCase {
       if (needsUpdate) {
         if (subscription.plan === "business") {
           await updateBusinessNetwork(subscription.business_id, {
+            activo: true,
             plan: "business",
             trial_ends_at: null,
             subscription_downgraded_at: null,

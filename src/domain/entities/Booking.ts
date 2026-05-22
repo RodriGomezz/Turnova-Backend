@@ -1,8 +1,7 @@
 export type BookingEstado =
   | "pendiente"
   | "confirmada"
-  | "cancelada"
-  | "modificada";
+  | "cancelada";
 
 export interface Booking {
   id: string;
