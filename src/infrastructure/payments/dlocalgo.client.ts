@@ -3,110 +3,86 @@ import {
   CreateCheckoutResult,
   ExecutionDetails,
   IPaymentProvider,
-  PaymentDetails,
   SubscriptionDetails,
 } from "../../application/ports/IPaymentProvider";
 import { SubscriptionPlan, BillingCycle } from "../../domain/entities/Subscription";
 import {
   getPlanPrice,
   getPlanName,
+  PLAN_PRICES_MONTHLY,
+  PLAN_PRICES_ANNUAL,
+  PLAN_NAMES_MONTHLY,
+  PLAN_NAMES_ANNUAL,
 } from "../../domain/plan-prices";
 
 // ── Tipos internos de dLocal Go ───────────────────────────────────────────────
 
 interface DLocalGoPlan {
-  id:               number;
-  merchant_id:      number;
-  name:             string;
-  description:      string;
-  country:          string;
-  currency:         string;
-  amount:           number;
-  frequency_type:   string;
-  frequency_value:  number;
-  active:           boolean;
-  free_trial_days:  number;
-  plan_token:       string;
-  subscribe_url:    string;
+  id: number;
+  merchant_id: number;
+  name: string;
+  description: string;
+  country: string;
+  currency: string;
+  amount: number;
+  frequency_type: string;
+  frequency_value: number;
+  active: boolean;
+  free_trial_days: number;
+  plan_token: string;
+  subscribe_url: string;
   notification_url: string | null;
-  back_url:         string | null;
-  success_url:      string | null;
-  error_url:        string | null;
-  created_at:       string;
-  updated_at:       string;
+  back_url: string | null;
+  success_url: string | null;
+  error_url: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface DLocalGoSubscription {
-  id:                 number;
+  id: number;
   subscription_token: string;
-  status:             "CREATED" | "CONFIRMED";
-  active:             boolean;
-  scheduled_date:     string | null;
-  client_email:       string | null;
-  plan:               DLocalGoPlan;
+  status: "CREATED" | "CONFIRMED";
+  active: boolean;
+  scheduled_date: string | null;
+  client_email: string | null;
+  plan: DLocalGoPlan;
 }
 
 interface DLocalGoExecution {
-  id:           number;
-  status:       "PENDING" | "COMPLETED" | "DECLINED";
-  order_id:     string;
-  currency:     string;
-  amount_paid:  number;
-  subscription: {
-    id:                 number;
-    subscription_token: string;
-    plan:               { id: number; plan_token: string };
-  } | null;
-}
-
-/**
- * Tipo de la respuesta de GET /v1/payments/:id.
- *
- * dLocal Go envía solo { "payment_id": "..." } en el webhook. Tras recibirlo,
- * consultamos este endpoint para obtener el estado real y los identificadores
- * necesarios para encontrar la suscripción interna.
- *
- * Nota: la documentación de dLocal Go no especifica exactamente todos los
- * campos del response de GET /v1/payments/:id para suscripciones. Los campos
- * marcados con "?" son inferidos del comportamiento observado y pueden variar.
- * Si dLocal Go agrega campos nuevos, el cast `as DLocalGoPaymentResponse`
- * los ignorará sin romper el flujo.
- */
-interface DLocalGoPaymentResponse {
-  id:                   string;
-  status:               string;
-  order_id?:            string;
-  subscription_token?:  string;
-  plan_token?:          string;
-  external_id?:         string | number;
-  currency?:            string;
-  amount?:              number;
-  client_email?:        string;
+  id: number;
+  status: "PENDING" | "COMPLETED" | "DECLINED";
+  order_id: string;
+  currency: string;
+  amount_paid: number;
 }
 
 interface DLocalGoErrorResponse {
-  code?:    string | number;
+  code?: string | number;
   message?: string;
-  error?:   string;
+  error?: string;
 }
 
 interface DLocalGoPagedResponse<T> {
-  data:               T[];
-  total_elements:     number;
-  total_pages:        number;
-  page:               number;
+  data: T[];
+  total_elements: number;
+  total_pages: number;
+  page: number;
   number_of_elements: number;
-  size:               number;
+  size: number;
 }
 
 // ── Configuración ─────────────────────────────────────────────────────────────
 
-const COUNTRY  = "UY";
+const COUNTRY = "UY";
 const CURRENCY = "UYU";
 
 /** Parámetros de frecuencia según ciclo de facturación */
 const FREQUENCY_PARAMS: Record<BillingCycle, { type: string; value: number }> = {
-  monthly: { type: "MONTHLY", value: 1  },
+  monthly: { type: "MONTHLY", value: 1 },
+  // dLocal Go representa anual como 12 meses de frecuencia mensual
+  // con un único cargo (o se puede usar YEARLY si el plan lo soporta).
+  // Ajustar según documentación actualizada de dLocal Go para UY.
   annual:  { type: "MONTHLY", value: 12 },
 };
 
@@ -117,7 +93,7 @@ function getBaseUrl(): string {
 }
 
 function getAuthHeader(): string {
-  const apiKey    = process.env.DLOCAL_API_KEY    ?? "";
+  const apiKey = process.env.DLOCAL_API_KEY ?? "";
   const secretKey = process.env.DLOCAL_SECRET_KEY ?? "";
 
   if (!apiKey || !secretKey) {
@@ -132,9 +108,9 @@ function getAuthHeader(): string {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function parseResponse<T>(
-  res:       Response,
+  res: Response,
   operation: string,
-  context:   Record<string, unknown> = {},
+  context: Record<string, unknown> = {},
 ): Promise<T> {
   const text = await res.text();
   let body: Record<string, unknown>;
@@ -150,8 +126,8 @@ async function parseResponse<T>(
   }
 
   if (!res.ok) {
-    const err     = body as unknown as DLocalGoErrorResponse;
-    const code    = err.code    ?? res.status;
+    const err = body as unknown as DLocalGoErrorResponse;
+    const code = err.code ?? res.status;
     const message = err.message ?? err.error ?? "Error desconocido";
     logger.error(`dLocal Go ${operation} error`, {
       ...context,
@@ -169,15 +145,15 @@ async function parseResponse<T>(
 
 export const dlocalGoClient: IPaymentProvider = {
   async getOrCreatePlan(
-    plan:            SubscriptionPlan,
+    plan: SubscriptionPlan,
     notificationUrl: string,
-    successUrl:      string,
-    backUrl:         string,
-    errorUrl:        string,
-    cycle:           BillingCycle = "monthly",
+    successUrl: string,
+    backUrl: string,
+    errorUrl: string,
+    cycle: BillingCycle = "monthly",
   ): Promise<CreateCheckoutResult> {
-    const base     = getBaseUrl();
-    const auth     = getAuthHeader();
+    const base = getBaseUrl();
+    const auth = getAuthHeader();
     const amount   = getPlanPrice(plan, cycle);
     const planName = getPlanName(plan, cycle);
     const freq     = FREQUENCY_PARAMS[cycle];
@@ -198,16 +174,16 @@ export const dlocalGoClient: IPaymentProvider = {
     const existing = listData.data.find(
       (p) =>
         p.active &&
-        p.name           === planName &&
-        p.currency       === CURRENCY &&
-        p.amount         === amount   &&
+        p.name === planName &&
+        p.currency === CURRENCY &&
+        p.amount === amount &&
         p.frequency_type === freq.type &&
         p.frequency_value === freq.value,
     );
 
     if (existing) {
       logger.info("dLocal Go: plan existente encontrado, actualizando URLs", {
-        planId:    existing.id,
+        planId: existing.id,
         planToken: existing.plan_token,
         cycle,
       });
@@ -220,9 +196,9 @@ export const dlocalGoClient: IPaymentProvider = {
       });
 
       const patchRes = await fetch(`${base}/v1/subscription/plan/${existing.id}`, {
-        method:  "PATCH",
+        method: "PATCH",
         headers: { Authorization: auth, "Content-Type": "application/json" },
-        body:    patchBody,
+        body: patchBody,
       });
 
       let subscribeUrl = existing.subscribe_url;
@@ -235,7 +211,7 @@ export const dlocalGoClient: IPaymentProvider = {
       } else {
         try {
           const patched = await patchRes.json() as DLocalGoPlan;
-          subscribeUrl  = patched.subscribe_url ?? existing.subscribe_url;
+          subscribeUrl = patched.subscribe_url ?? existing.subscribe_url;
           logger.info("dLocal Go: URLs del plan actualizadas", {
             planId: existing.id,
             subscribeUrl,
@@ -258,21 +234,21 @@ export const dlocalGoClient: IPaymentProvider = {
     logger.info("dLocal Go: creando nuevo plan", { plan, cycle, amount });
 
     const body = JSON.stringify({
-      name:             planName,
-      description:      `Kronu ${planName} - Facturación ${cycle === "annual" ? "anual" : "mensual"}`,
-      country:          COUNTRY,
-      currency:         CURRENCY,
+      name: planName,
+      description: `Kronu ${planName} - Facturación ${cycle === "annual" ? "anual" : "mensual"}`,
+      country: COUNTRY,
+      currency: CURRENCY,
       amount,
-      frequency_type:   freq.type,
-      frequency_value:  freq.value,
+      frequency_type:  freq.type,
+      frequency_value: freq.value,
       notification_url: notificationUrl,
-      success_url:      successUrl,
-      back_url:         backUrl,
-      error_url:        errorUrl,
+      success_url: successUrl,
+      back_url: backUrl,
+      error_url: errorUrl,
     });
 
     const createRes = await fetch(`${base}/v1/subscription/plan`, {
-      method:  "POST",
+      method: "POST",
       headers: { Authorization: auth, "Content-Type": "application/json" },
       body,
     });
@@ -283,7 +259,7 @@ export const dlocalGoClient: IPaymentProvider = {
     });
 
     logger.info("dLocal Go: plan creado", {
-      planId:    created.id,
+      planId: created.id,
       planToken: created.plan_token,
       cycle,
     });
@@ -301,7 +277,7 @@ export const dlocalGoClient: IPaymentProvider = {
     const res = await fetch(
       `${getBaseUrl()}/v1/subscription/plan/${planId}/subscription/${subscriptionId}/deactivate`,
       {
-        method:  "PATCH",
+        method: "PATCH",
         headers: {
           Authorization: getAuthHeader(),
           "Content-Type": "application/json",
@@ -317,7 +293,7 @@ export const dlocalGoClient: IPaymentProvider = {
   },
 
   async getSubscription(
-    planId:         number,
+    planId: number,
     subscriptionId: number,
   ): Promise<SubscriptionDetails> {
     logger.info("dLocal Go: consultando suscripción", { planId, subscriptionId });
@@ -356,7 +332,7 @@ export const dlocalGoClient: IPaymentProvider = {
 
   async getExecution(
     subscriptionId: number,
-    executionId:    string,
+    executionId: string,
   ): Promise<ExecutionDetails> {
     logger.info("dLocal Go: consultando ejecución", { subscriptionId, executionId });
 
@@ -376,50 +352,11 @@ export const dlocalGoClient: IPaymentProvider = {
     });
 
     return {
-      executionId:       data.id,
-      orderId:           data.order_id,
-      status:            data.status,
-      currency:          data.currency,
-      amountPaid:        data.amount_paid,
-      subscriptionToken: data.subscription?.subscription_token ?? null,
-      planToken:         data.subscription?.plan?.plan_token   ?? null,
-    };
-  },
-
-  /**
-   * Consulta un pago por su ID.
-   *
-   * dLocal Go envía solo { "payment_id": "..." } al notification_url.
-   * Este método obtiene el estado completo del pago para que
-   * HandleWebhookUseCase pueda identificar la suscripción y actuar.
-   */
-  async getPayment(paymentId: string): Promise<PaymentDetails> {
-    logger.info("dLocal Go: consultando pago", { paymentId });
-
-    const res = await fetch(
-      `${getBaseUrl()}/v1/payments/${paymentId}`,
-      {
-        headers: {
-          Authorization: getAuthHeader(),
-          "Content-Type": "application/json",
-        },
-      },
-    );
-
-    const data = await parseResponse<DLocalGoPaymentResponse>(res, "getPayment", {
-      paymentId,
-    });
-
-    return {
-      id:                String(data.id),
-      status:            data.status,
-      orderId:           data.order_id           ?? null,
-      subscriptionToken: data.subscription_token ?? null,
-      planToken:         data.plan_token         ?? null,
-      externalId:        data.external_id != null ? String(data.external_id) : null,
-      currency:          data.currency           ?? null,
-      amount:            data.amount             ?? null,
-      clientEmail:       data.client_email       ?? null,
+      executionId: data.id,
+      orderId:     data.order_id,
+      status:      data.status,
+      currency:    data.currency,
+      amountPaid:  data.amount_paid,
     };
   },
 };
