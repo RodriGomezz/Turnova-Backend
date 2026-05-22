@@ -51,4 +51,11 @@ export interface IBookingRepository {
     year: number,
     month: number,
   ): Promise<number>;
+
+  // Agregar en IBookingRepository
+findByBusinessAndMonth(
+  businessId: string,
+  year: number,
+  month: number,
+): Promise<Booking[]>;
 }

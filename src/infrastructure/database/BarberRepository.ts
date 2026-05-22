@@ -23,7 +23,7 @@ export class BarberRepository implements IBarberRepository {
       .from(this.table)
       .select("*")
       .eq("business_id", businessId)
-      .eq("activo", true)
+      .order("activo", { ascending: false })
       .order("orden", { ascending: true });
 
     if (error) throw new AppError(error.message, 500);
@@ -52,23 +52,37 @@ export class BarberRepository implements IBarberRepository {
     return created as Barber;
   }
 
-  async update(id: string, data: Partial<Barber>): Promise<Barber> {
-    const { data: updated, error } = await supabase
-      .from(this.table)
-      .update(data)
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) throw new AppError(error.message, 500);
-    return updated as Barber;
+async update(id: string, data: Partial<Barber>): Promise<Barber> {
+  // Guardia: Supabase lanza PGRST error si el payload está vacío
+  if (Object.keys(data).length === 0) {
+    throw new AppError('No se enviaron campos para actualizar', 400);
   }
+
+  const { data: updated, error } = await supabase
+    .from(this.table)
+    .update(data)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw new AppError(error.message, 500);
+  return updated as Barber;
+}
 
   /** Soft delete — marca como inactivo, no elimina físicamente */
   async deactivate(id: string): Promise<void> {
     const { error } = await supabase
       .from(this.table)
       .update({ activo: false })
+      .eq("id", id);
+
+    if (error) throw new AppError(error.message, 500);
+  }
+
+  async hardDelete(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(this.table)
+      .delete()
       .eq("id", id);
 
     if (error) throw new AppError(error.message, 500);

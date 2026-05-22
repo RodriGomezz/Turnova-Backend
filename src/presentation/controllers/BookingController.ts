@@ -49,7 +49,24 @@ export class BookingController {
         req.businessId!,
         fecha,
       );
-      res.json({ bookings, fecha });
+      const uniqueEmails = [...new Set(bookings.map((booking) => booking.cliente_email))];
+      const previousEmails =
+        uniqueEmails.length > 0
+          ? await this.bookingRepository.findEmailsByBusiness(
+              req.businessId!,
+              fecha,
+              uniqueEmails,
+            )
+          : [];
+      const previousEmailSet = new Set(previousEmails);
+      const enrichedBookings = bookings.map((booking) => ({
+        ...booking,
+        cliente_tipo: previousEmailSet.has(booking.cliente_email)
+          ? "recurrente"
+          : "nuevo",
+      }));
+
+      res.json({ bookings: enrichedBookings, fecha });
     } catch (error) {
       next(error);
     }
@@ -102,6 +119,39 @@ export class BookingController {
       next(error);
     }
   };
+
+getMonthFull = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const year  = parseInt((req.query['year']  as string) ?? new Date().getFullYear().toString());
+    const month = parseInt((req.query['month'] as string) ?? (new Date().getMonth() + 1).toString());
+
+    const bookings = await this.bookingRepository.findByBusinessAndMonth(
+      req.businessId!,
+      year,
+      month,
+    );
+
+    // Enriquecer con cliente_tipo igual que listByDate
+    const uniqueEmails = [...new Set(bookings.map((b) => b.cliente_email))];
+    const previousEmails = uniqueEmails.length > 0
+      ? await this.bookingRepository.findEmailsByBusiness(
+          req.businessId!,
+          `${year}-${month.toString().padStart(2, '0')}-01`,
+          uniqueEmails,
+        )
+      : [];
+    const previousEmailSet = new Set(previousEmails);
+
+    const enriched = bookings.map((b) => ({
+      ...b,
+      cliente_tipo: previousEmailSet.has(b.cliente_email) ? 'recurrente' : 'nuevo',
+    }));
+
+    res.json({ bookings: enriched, year, month });
+  } catch (error) {
+    next(error);
+  }
+};
 
   getDaySummary = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {

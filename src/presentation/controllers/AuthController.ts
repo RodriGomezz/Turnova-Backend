@@ -145,7 +145,22 @@ export class AuthController {
         req.userId!,
       );
 
-      res.json({ user, businesses });
+      let resolvedUser = user;
+      const currentBusiness = businesses.find(
+        (business) => business.id === user.business_id,
+      );
+
+      if (currentBusiness && !currentBusiness.activo) {
+        const fallbackBusiness = businesses.find((business) => business.activo);
+        if (fallbackBusiness) {
+          resolvedUser = await this.userRepository.update(user.id, {
+            business_id: fallbackBusiness.id,
+          });
+          invalidateUserCache(user.id);
+        }
+      }
+
+      res.json({ user: resolvedUser, businesses });
     } catch (error) {
       next(error);
     }

@@ -80,6 +80,12 @@ export class BusinessController {
       const hasAccess = await this.userBusinessAccess.hasAccess(userId, business_id);
       if (!hasAccess) throw new AppError("No tenes acceso a ese negocio", 403);
 
+      const business = await this.businessRepository.findById(business_id);
+      if (!business) throw new NotFoundError("Negocio");
+      if (!business.activo) {
+        throw new AppError("Esa sucursal esta inactiva. Reactivala antes de cambiar.", 400);
+      }
+
       await this.userRepository.update(userId, { business_id });
       invalidateUserCache(userId);
 

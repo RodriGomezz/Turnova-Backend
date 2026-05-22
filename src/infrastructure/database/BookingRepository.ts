@@ -48,6 +48,27 @@ export class BookingRepository implements IBookingRepository {
     return (data ?? []) as Booking[];
   }
 
+  async findByBusinessAndMonth(
+  businessId: string,
+  year: number,
+  month: number,
+): Promise<Booking[]> {
+  const { from, to } = this.buildMonthRange(year, month);
+
+  const { data, error } = await supabase
+    .from(this.table)
+    .select('*, barbers(nombre), services(nombre, duracion_minutos, precio, precio_hasta)')
+    .eq('business_id', businessId)
+    .neq('estado', 'cancelada')
+    .gte('fecha', from)
+    .lte('fecha', to)
+    .order('fecha',       { ascending: true })
+    .order('hora_inicio', { ascending: true });
+
+  if (error) throw new AppError(error.message, 500);
+  return (data ?? []) as Booking[];
+}
+
   async findByBarberAndDate(barberId: string, fecha: string): Promise<Booking[]> {
     const { data, error } = await supabase
       .from(this.table)

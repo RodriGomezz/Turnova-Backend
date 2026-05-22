@@ -72,25 +72,26 @@ export class BarberController {
     }
   };
 
-  update = async (
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> => {
-    try {
-      const id = req.params["id"] as string;
-      const input = req.body as UpdateBarberInput;
+update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id    = req.params['id'] as string;
+    const input = req.body as UpdateBarberInput;
 
-      const existing = await this.barberRepository.findById(id);
-      if (!existing) throw new NotFoundError("Profesional");
-      if (existing.business_id !== req.businessId) throw new ForbiddenError();
-
-      const barber = await this.barberRepository.update(id, input);
-      res.json({ barber });
-    } catch (error) {
-      next(error);
+    // Zod ya validó, pero si el body llegó vacío es un 400, no un 500
+    if (Object.keys(input).length === 0) {
+      throw new AppError('No se enviaron campos para actualizar', 400);
     }
-  };
+
+    const existing = await this.barberRepository.findById(id);
+    if (!existing)                              throw new NotFoundError('Profesional');
+    if (existing.business_id !== req.businessId) throw new ForbiddenError();
+
+    const barber = await this.barberRepository.update(id, input);
+    res.json({ barber });
+  } catch (error) {
+    next(error);
+  }
+};
 
   delete = async (
     req: Request,
@@ -103,6 +104,15 @@ export class BarberController {
       const existing = await this.barberRepository.findById(id);
       if (!existing) throw new NotFoundError("Profesional");
       if (existing.business_id !== req.businessId) throw new ForbiddenError();
+
+      const hardDelete =
+        String(req.query["hard"] ?? "").toLowerCase() === "true";
+
+      if (hardDelete) {
+        await this.barberRepository.hardDelete(id);
+        res.json({ message: "Profesional eliminado correctamente" });
+        return;
+      }
 
       await this.barberRepository.deactivate(id);
       res.json({ message: "Profesional desactivado correctamente" });

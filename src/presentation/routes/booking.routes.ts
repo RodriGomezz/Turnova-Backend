@@ -25,6 +25,8 @@ router.patch("/panel/:id/estado",  authMiddleware, controller.updateEstado);
 router.patch("/panel/:id/modify",  authMiddleware, controller.modifyBooking);
 router.patch("/panel/:id/cancel",  authMiddleware, controller.cancelBooking);
 router.get("/panel/month", authMiddleware, controller.getMonthSummary);
+// Agregar junto a las rutas del panel
+router.get('/panel/month-full', authMiddleware, controller.getMonthFull);
 // Junto a las otras rutas del panel
 router.get('/panel/day-summary', authMiddleware, controller.getDaySummary);
 // ── Helpers ────────────────────────────────────────────────────────────────

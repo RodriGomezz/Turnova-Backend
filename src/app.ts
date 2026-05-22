@@ -2,7 +2,7 @@ import express, { Application } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
-import { generalLimiter, authLimiter, publicLimiter } from './presentation/middlewares/rateLimiter.middleware';
+import { authBurstLimiter, generalLimiter, publicLimiter, refreshLimiter, uploadLimiter } from './presentation/middlewares/rateLimiter.middleware';
 import { errorHandler } from './presentation/middlewares/errorHandler.middleware';
 import { requestLogger } from './presentation/middlewares/requestLogger.middleware';
 import authRoutes from './presentation/routes/auth.routes';
@@ -17,6 +17,8 @@ import statsRoutes from "./presentation/routes/stats.routes";
 import subscriptionRoutes from "./presentation/routes/subscription.routes";
 
 export const app: Application = express();
+
+app.set("trust proxy", 1);
 
 app.use(compression());
 
@@ -92,15 +94,26 @@ app.use(express.json({ limit: "10kb" }));
 app.use(express.urlencoded({ limit: "10kb", extended: true }));
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-app.use("/api/bookings/public", publicLimiter);
-app.use("/api/auth", authLimiter);
-app.use("/api/barbers",        generalLimiter);
-app.use("/api/services",       generalLimiter);
-app.use("/api/schedules",      generalLimiter);
-app.use("/api/business",       generalLimiter);
-app.use("/api/bookings/panel", generalLimiter);
-app.use("/api/subscriptions",  generalLimiter);
 
+app.use('/api/bookings/public',     publicLimiter);
+app.use('/api/services/defaults',   publicLimiter);      // ruta pública, separada del panel
+
+app.use('/api/auth/login',          authBurstLimiter);
+app.use('/api/auth/register',       authBurstLimiter);
+app.use('/api/auth/request-reset',  authBurstLimiter);
+app.use('/api/auth/reset-password', authBurstLimiter);
+app.use('/api/auth/refresh',        refreshLimiter);
+
+app.use('/api/upload',              uploadLimiter);      // nuevo — faltaba
+
+app.use('/api/barbers',             generalLimiter);
+app.use('/api/services',            generalLimiter);
+app.use('/api/schedules',           generalLimiter);
+app.use('/api/business',            generalLimiter);
+app.use('/api/bookings/panel',      generalLimiter);
+app.use('/api/subscriptions',       generalLimiter);
+app.use('/api/stats',               generalLimiter);     // nuevo — faltaba
+app.use('/api/domain',              generalLimiter);     // nuevo — faltaba
 // ── Logger ────────────────────────────────────────────────────────────────────
 app.use(requestLogger);
 

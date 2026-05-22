@@ -6,6 +6,6 @@ export interface IBarberRepository {
   countByBusiness(businessId: string): Promise<number>;
   create(data: Partial<Barber>): Promise<Barber>;
   update(id: string, data: Partial<Barber>): Promise<Barber>;
-  /** Soft delete — marca como inactivo, no elimina físicamente */
   deactivate(id: string): Promise<void>;
+  hardDelete(id: string): Promise<void>;
 }

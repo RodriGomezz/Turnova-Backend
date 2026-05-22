@@ -68,14 +68,35 @@ export class UserRepository {
 
   async findBusinessesByUserId(
     userId: string,
-  ): Promise<{ id: string; nombre: string; slug: string; logo_url: string | null }[]> {
+  ): Promise<{
+    id: string;
+    nombre: string;
+    slug: string;
+    logo_url: string | null;
+    activo: boolean;
+    plan: string;
+    esPrincipal: boolean;
+  }[]> {
     const { data, error } = await supabase
       .from("user_businesses")
-      .select("businesses(id, nombre, slug, logo_url)")
+      .select("created_at, businesses(id, nombre, slug, logo_url, activo, plan)")
       .eq("user_id", userId);
 
     if (error) throw new AppError(error.message, 500);
-    return (data ?? []).map((row: any) => row.businesses).filter(Boolean);
+    return (data ?? [])
+      .map((row: any, index: number) => {
+        const business = Array.isArray(row.businesses)
+          ? row.businesses[0]
+          : row.businesses;
+
+        if (!business) return null;
+
+        return {
+          ...business,
+          esPrincipal: index === 0,
+        };
+      })
+      .filter(Boolean);
   }
 
   async addBusinessAccess(userId: string, businessId: string): Promise<void> {
