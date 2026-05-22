@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import { createSupabaseAuthClient } from "../../infrastructure/database/supabase.client";
-import { UserRepository } from "../../infrastructure/database/UserRepository";
-import { UnauthorizedError } from "../../domain/errors";
-import { logger } from "../../infrastructure/logger";
+import { createSupabaseAuthClient }         from "../../infrastructure/database/supabase.client";
+import { UserRepository }                   from "../../infrastructure/database/UserRepository";
+import { UnauthorizedError }                from "../../domain/errors";
+import { logger }                           from "../../infrastructure/logger";
 
 declare global {
   namespace Express {
@@ -18,7 +18,7 @@ interface CacheEntry {
   timestamp:  number;
 }
 
-const USER_CACHE_TTL_MS  = 5 * 60 * 1_000; // 5 minutos
+const USER_CACHE_TTL_MS   = 5 * 60 * 1_000; // 5 minutos
 const USER_CACHE_MAX_SIZE = 1_000;
 
 const userRepository = new UserRepository();
@@ -52,10 +52,29 @@ export const authMiddleware = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
+    /**
+     * Extracción del token — soporta dos formas:
+     *
+     * 1. Header Authorization: Bearer <token>  (requests normales)
+     * 2. Query param ?token=<token>             (SSE — EventSource no soporta headers)
+     *
+     * El query param solo se acepta para la ruta de SSE. En cualquier otro
+     * endpoint se requiere el header para prevenir que tokens acaben en logs
+     * de proxies o historiales del browser.
+     */
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) throw new UnauthorizedError();
+    const queryToken = req.query["token"] as string | undefined;
 
-    const token = authHeader.slice(7);
+    let token: string | undefined;
+
+    if (authHeader?.startsWith("Bearer ")) {
+      token = authHeader.slice(7);
+    } else if (queryToken && req.path.endsWith("/confirm-stream")) {
+      // Solo permitir query param en la ruta SSE
+      token = queryToken;
+    }
+
+    if (!token) throw new UnauthorizedError();
 
     const authClient = createSupabaseAuthClient();
     const {
