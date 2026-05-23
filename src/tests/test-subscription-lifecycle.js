@@ -98,34 +98,20 @@ function fmt(ms) {
 
 function log(step, total, icon, title, detail = "") {
   const pad = String(step).padStart(2, "0");
-  console.log(`\n[${pad}/${total}] ${icon}  ${title}`);
-  if (detail) console.log(`        ${detail}`);
 }
 
 function logResult(res) {
   const icon = res.status === 200 ? "✅" : "❌";
-  console.log(`        ${icon} HTTP ${res.status} — ${res.body}`);
 }
 
 async function runLifecycle() {
   const PERIOD_MS = CONFIG.periodMinutes * 60 * 1000;
   const STEPS     = 7;
   let   seq       = 1;
-
-  console.log("\n╔══════════════════════════════════════════════════╗");
-  console.log("║   Simulador de ciclo de vida de suscripción      ║");
-  console.log("╠══════════════════════════════════════════════════╣");
-  console.log(`║  Suscripción:  ${CONFIG.subscriptionId.slice(0,36)}  ║`);
-  console.log(`║  Período:      ${CONFIG.periodMinutes} minutos                         ║`);
-  console.log(`║  Duración total estimada: ~${CONFIG.periodMinutes * 2 + 1} minutos            ║`);
-  console.log("╚══════════════════════════════════════════════════╝\n");
-
   // ── Paso 1: Pago inicial ────────────────────────────────────────────────────
   log(1, STEPS, "💳", "Pago inicial", "Simula el primer cobro exitoso al suscribirse");
   const r1 = await sendWebhook("success", CONFIG.subscriptionId, seq++);
   logResult(r1);
-  console.log(`        → status esperado en BD: active`);
-  console.log(`        → current_period_end: ahora + ${fmt(PERIOD_MS)}`);
 
   if (r1.status !== 200) {
     console.error("\n❌ El backend no respondió 200. Verificá secret y subscriptionId. Abortando.\n");
@@ -148,15 +134,12 @@ async function runLifecycle() {
   // Esperar el tiempo restante
   const leftover = PERIOD_MS % 30000;
   if (leftover > 0) await sleep(leftover);
-  console.log("\r        ✓ Período vencido                        ");
 
   // ── Paso 3: Renovación exitosa ──────────────────────────────────────────────
   log(3, STEPS, "🔄", "Renovación exitosa",
     "dLocal Go cobra automáticamente y envía este webhook");
   const r3 = await sendWebhook("success", CONFIG.subscriptionId, seq++);
   logResult(r3);
-  console.log(`        → status esperado en BD: active (renovado)`);
-  console.log(`        → current_period_end: ahora + ${fmt(PERIOD_MS)} nuevamente`);
 
   await sleep(2000);
 
@@ -165,7 +148,6 @@ async function runLifecycle() {
     "Tarjeta sin fondos, expirada, etc.");
   const r4 = await sendWebhook("declined", CONFIG.subscriptionId, seq++);
   logResult(r4);
-  console.log(`        → status esperado en BD: past_due`);
 
   await sleep(2000);
 
@@ -174,18 +156,12 @@ async function runLifecycle() {
     "dLocal Go reintentó y volvió a fallar");
   const r5 = await sendWebhook("declined", CONFIG.subscriptionId, seq++);
   logResult(r5);
-  console.log(`        → status esperado en BD: grace_period`);
-  console.log(`        → grace_period_ends_at: ahora + 7 días`);
 
   await sleep(2000);
 
   // ── Paso 6: Simular vencimiento de grace period ──────────────────────────────
   log(6, STEPS, "💀", "Grace period vencido (simulado)",
     "En producción el job hourly detectaría que grace_period_ends_at < now()");
-  console.log("        → En este punto el job de expiración degradaría el plan a starter.");
-  console.log("        → Para probarlo: cambiá grace_period_ends_at a una fecha pasada en Supabase");
-  console.log("          y esperá hasta la próxima ejecución del job (o reiniciá el servidor).");
-
   await sleep(2000);
 
   // ── Paso 7: Recuperación ─────────────────────────────────────────────────────
@@ -193,22 +169,7 @@ async function runLifecycle() {
     "dLocal Go logra cobrar y envía webhook exitoso");
   const r7 = await sendWebhook("success", CONFIG.subscriptionId, seq++);
   logResult(r7);
-  console.log(`        → status esperado en BD: active (recuperado)`);
 
-  // ── Resumen ──────────────────────────────────────────────────────────────────
-  console.log("\n╔══════════════════════════════════════════════════╗");
-  console.log("║   Ciclo completado                               ║");
-  console.log("╠══════════════════════════════════════════════════╣");
-  console.log("║  Verificá en Supabase (tabla subscriptions):     ║");
-  console.log("║    status            → active                    ║");
-  console.log("║    current_period_end → fecha futura             ║");
-  console.log("║    grace_period_ends_at → null                   ║");
-  console.log("║                                                  ║");
-  console.log("║  Verificá en los logs del backend:               ║");
-  console.log("║    ✓ Suscripción activada por pago exitoso (x3)  ║");
-  console.log("║    ✓ Email de confirmación enviado               ║");
-  console.log("║    ✓ Email de pago fallido enviado               ║");
-  console.log("╚══════════════════════════════════════════════════╝\n");
 }
 
 runLifecycle().catch((err) => {

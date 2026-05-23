@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import { createSupabaseAuthClient }         from "../../infrastructure/database/supabase.client";
-import { UserRepository }                   from "../../infrastructure/database/UserRepository";
-import { UnauthorizedError }                from "../../domain/errors";
-import { logger }                           from "../../infrastructure/logger";
+import { createRemoteJWKSet, jwtVerify } from "jose";
+import { UserRepository }    from "../../infrastructure/database/UserRepository";
+import { UnauthorizedError } from "../../domain/errors";
+import { logger }            from "../../infrastructure/logger";
 
 declare global {
   namespace Express {
@@ -13,16 +13,21 @@ declare global {
   }
 }
 
+// ── JWKS remoto — se cachea automáticamente por `jose` ───────────────────
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
+);
+
+// ── Cache de businessId ───────────────────────────────────────────────────
+
 interface CacheEntry {
   businessId: string;
   timestamp:  number;
 }
 
-const USER_CACHE_TTL_MS   = 5 * 60 * 1_000; // 5 minutos
+const USER_CACHE_TTL_MS   = 5 * 60 * 1_000;
 const USER_CACHE_MAX_SIZE = 1_000;
-
-const userRepository = new UserRepository();
-const userCache      = new Map<string, CacheEntry>();
+const userCache = new Map<string, CacheEntry>();
 
 function getCached(userId: string): string | null {
   const entry = userCache.get(userId);
@@ -46,22 +51,16 @@ export function invalidateUserCache(userId: string): void {
   userCache.delete(userId);
 }
 
+const userRepository = new UserRepository();
+
+// ── Middleware ────────────────────────────────────────────────────────────
+
 export const authMiddleware = async (
   req:  Request,
   _res: Response,
   next: NextFunction,
 ): Promise<void> => {
   try {
-    /**
-     * Extracción del token — soporta dos formas:
-     *
-     * 1. Header Authorization: Bearer <token>  (requests normales)
-     * 2. Query param ?token=<token>             (SSE — EventSource no soporta headers)
-     *
-     * El query param solo se acepta para la ruta de SSE. En cualquier otro
-     * endpoint se requiere el header para prevenir que tokens acaben en logs
-     * de proxies o historiales del browser.
-     */
     const authHeader = req.headers.authorization;
     const queryToken = req.query["token"] as string | undefined;
 
@@ -70,32 +69,37 @@ export const authMiddleware = async (
     if (authHeader?.startsWith("Bearer ")) {
       token = authHeader.slice(7);
     } else if (queryToken && req.path.endsWith("/confirm-stream")) {
-      // Solo permitir query param en la ruta SSE
       token = queryToken;
     }
 
     if (!token) throw new UnauthorizedError();
 
-    const authClient = createSupabaseAuthClient();
-    const {
-      data: { user },
-      error,
-    } = await authClient.auth.getUser(token);
+    // ── Verificación local ES256 — sin llamada a Supabase por request ────
+    let payload: { sub?: string };
+    try {
+      const result = await jwtVerify(token, JWKS, { algorithms: ["ES256"] });
+      payload = result.payload;
+    } catch (err) {
+      logger.debug("JWT inválido o expirado", { err });
+      throw new UnauthorizedError();
+    }
 
-    if (error || !user) throw new UnauthorizedError();
+    const userId = payload.sub;
+    if (!userId) throw new UnauthorizedError();
 
-    const cached = getCached(user.id);
+    // ── Cache ─────────────────────────────────────────────────────────────
+    const cached = getCached(userId);
     if (cached) {
-      req.userId     = user.id;
+      req.userId     = userId;
       req.businessId = cached;
       return next();
     }
 
-    const dbUser = await userRepository.findById(user.id);
+    const dbUser = await userRepository.findById(userId);
     if (!dbUser) throw new UnauthorizedError();
 
-    setCache(user.id, dbUser.business_id);
-    req.userId     = user.id;
+    setCache(userId, dbUser.business_id);
+    req.userId     = userId;
     req.businessId = dbUser.business_id;
 
     next();
