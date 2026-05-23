@@ -117,13 +117,21 @@ export function startSubscriptionExpiryJob(): void {
     `Job de expiración de suscripciones iniciado (cada ${INTERVAL_MS / 1000 / 60} min)`,
   );
 
-  processSubscriptionExpirations().catch((err) =>
-    logger.error("Error en primera ejecución del job de suscripciones", { err }),
-  );
+  let isRunning = false;
 
-  setInterval(() => {
-    processSubscriptionExpirations().catch((err) =>
-      logger.error("Error en job de suscripciones", { err }),
-    );
-  }, INTERVAL_MS);
+  const run = (): void => {
+    if (isRunning) {
+      logger.warn("Job de suscripciones ya en ejecución — omitiendo ciclo");
+      return;
+    }
+    isRunning = true;
+    processSubscriptionExpirations()
+      .catch((err) => logger.error("Error en job de suscripciones", { err }))
+      .finally(() => { isRunning = false; });
+  };
+
+  // Correr inmediatamente al iniciar
+  run();
+
+  setInterval(run, INTERVAL_MS);
 }

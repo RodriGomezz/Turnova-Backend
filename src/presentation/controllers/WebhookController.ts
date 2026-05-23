@@ -21,16 +21,6 @@ export class WebhookController {
       const rawBody = req.body as Buffer;
 
       // ── [SEC-001] CRÍTICO: verificación de firma HMAC ─────────────────────
-      //
-      // Según la documentación oficial de dLocal Go, la firma se envía en el
-      // header Authorization con el formato:
-      //   "V2-HMAC-SHA256, Signature: <hex>"
-      //
-      // El mensaje que se firma es: apiKey + rawBody (NO solo rawBody).
-      // El código anterior calculaba HMAC(rawBody, secret) — incorrecto.
-      //
-      // Sin verificación correcta, cualquier actor puede POST a este endpoint
-      // y activar suscripciones sin pagar.
       const authHeader = req.headers["authorization"] as string | undefined;
 
       if (!authHeader) {
@@ -38,12 +28,10 @@ export class WebhookController {
           ip:        req.ip,
           userAgent: req.headers["user-agent"],
         });
-        // Respondemos 200 para evitar reintentos, pero NO procesamos.
         res.status(200).json({ received: true });
         return;
       }
 
-      // Extraer la firma del formato "V2-HMAC-SHA256, Signature: <hex>"
       const signatureMatch = authHeader.match(/Signature:\s*([a-f0-9]+)/i);
       if (!signatureMatch) {
         logger.warn("Webhook dLocal Go rechazado: formato de Authorization inválido", {
@@ -54,11 +42,15 @@ export class WebhookController {
       }
 
       const signature = signatureMatch[1];
-      this.verifySignature(rawBody, signature);
 
-      // ── Parse del payload ─────────────────────────────────────────────────
-      // [SEC-002] dLocal Go solo envía { "payment_id": "..." }.
-      // No logueamos el rawBody — puede contener datos sensibles.
+      // verifySignature retorna false si la firma no coincide.
+      // Respondemos 200 para evitar reintentos de dLocal — un 4xx haría
+      // que dLocal reintente indefinidamente y nunca procese el pago.
+      if (!this.verifySignature(rawBody, signature)) {
+        res.status(200).json({ received: true });
+        return;
+      }
+
       let payload: DLocalGoWebhookPayload;
       try {
         payload = JSON.parse(rawBody.toString()) as DLocalGoWebhookPayload;
@@ -83,14 +75,12 @@ export class WebhookController {
 
   /**
    * Verifica la firma HMAC-SHA256 del webhook de dLocal Go.
+   * Retorna true si la firma es válida, false si no lo es.
    *
    * Según la documentación oficial:
    *   Signature = HMAC('sha256', apiKey + rawBody, secretKey)
-   *
-   * El mensaje a firmar es la CONCATENACIÓN del apiKey con el rawBody —
-   * no solo el rawBody como implementaba el código anterior.
    */
-  private verifySignature(rawBody: Buffer, signature: string): void {
+  private verifySignature(rawBody: Buffer, signature: string): boolean {
     const secret = process.env.DLOCAL_SECRET_KEY;
     const apiKey = process.env.DLOCAL_API_KEY;
 
@@ -98,10 +88,9 @@ export class WebhookController {
       logger.error(
         "DLOCAL_SECRET_KEY o DLOCAL_API_KEY no configurados — no se puede verificar firma",
       );
-      throw new AppError("Error de configuración del servidor", 500);
+      return false;
     }
 
-    // Mensaje = apiKey + rawBody (string), según especificación dLocal Go
     const message  = apiKey + rawBody.toString();
     const expected = crypto
       .createHmac("sha256", secret)
@@ -112,15 +101,14 @@ export class WebhookController {
     const sigBuf = Buffer.from(signature);
     const expBuf = Buffer.from(expected);
 
-    if (
-      sigBuf.length !== expBuf.length ||
-      !crypto.timingSafeEqual(sigBuf, expBuf)
-    ) {
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
       logger.warn("Webhook dLocal Go: firma inválida rechazada", {
         signatureLength: signature.length,
         expectedLength:  expected.length,
       });
-      throw new AppError("Firma de webhook inválida", 401);
+      return false;
     }
+
+    return true;
   }
 }

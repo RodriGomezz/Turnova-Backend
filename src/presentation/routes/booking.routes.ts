@@ -178,7 +178,7 @@ router.get("/public/domain/:domain", async (req, res, next) => {
 
 // ── Rutas públicas de reserva ──────────────────────────────────────────────
 
-router.get("/public/:slug/available-days", controller.getAvailableDays);
+router.get("/public/:slug/available-days", slotLimiter, controller.getAvailableDays);
 // Precarga todos los slots del mes en una llamada — el cliente los cachea
 router.get("/public/:slug/available-days-with-slots", slotLimiter, controller.getAllSlotsForDays);
 // Mantener para compatibilidad con clientes que ya usan el endpoint individual

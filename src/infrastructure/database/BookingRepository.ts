@@ -125,6 +125,11 @@ export class BookingRepository implements IBookingRepository {
       .select()
       .single();
 
+    // 23505 = unique_violation — dos requests simultáneos pasaron la
+    // verificación de disponibilidad y uno perdió la race condition.
+    if (error?.code === "23505") {
+      throw new ConflictError("El horario seleccionado ya no está disponible");
+    }
     if (error) throw new AppError(error.message, 500);
     return created as Booking;
   }

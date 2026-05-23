@@ -98,6 +98,16 @@ export class ModifyBookingUseCase {
   }
 
   private todayString(): string {
-    return new Date().toISOString().slice(0, 10);
+    // toISOString() devuelve UTC — a las 22:00 de Uruguay (UTC-3) el servidor
+    // ya marca mañana y bloquea modificaciones de reservas de hoy.
+    // Usamos las partes locales del Date para obtener la fecha correcta.
+    const now = new Date();
+    return (
+      now.getFullYear() +
+      "-" +
+      String(now.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(now.getDate()).padStart(2, "0")
+    );
   }
 }

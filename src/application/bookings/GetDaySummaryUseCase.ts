@@ -226,7 +226,7 @@ export class GetDaySummaryUseCase {
       .getMinutes()
       .toString()
       .padStart(2, "0")}`;
-    const esHoy = fecha === now.toISOString().split("T")[0];
+    const esHoy = fecha === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
     let primerTurnoLibre: string | null = null;
 
