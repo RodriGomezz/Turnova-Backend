@@ -42,14 +42,17 @@ export class BusinessController {
 
   getStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const business = await this.businessRepository.findById(req.businessId!);
+      // PERF: ambas queries son independientes — se lanzan en paralelo
+      const [business, totalBarberos] = await Promise.all([
+        this.businessRepository.findById(req.businessId!),
+        this.barberRepository.countByBusiness(req.businessId!),
+      ]);
       if (!business) throw new NotFoundError("Negocio");
 
       const trialActivo = business.trial_ends_at
         ? new Date(business.trial_ends_at) > new Date()
         : false;
       const limits = getPlanLimits(business.plan, trialActivo);
-      const totalBarberos = await this.barberRepository.countByBusiness(req.businessId!);
 
       res.json({
         plan: business.plan,

@@ -45,11 +45,16 @@ export class BookingController {
     try {
       const fecha =
         (req.query["fecha"] as string) ?? new Date().toISOString().split("T")[0];
+
       const bookings = await this.bookingRepository.findByBusinessAndDate(
         req.businessId!,
         fecha,
       );
+
       const uniqueEmails = [...new Set(bookings.map((booking) => booking.cliente_email))];
+
+      // PERF: lanzar la query de emails previos en paralelo — no depende de bookings
+      // (ya tenemos los emails del resultado anterior, no necesitamos esperar nada más)
       const previousEmails =
         uniqueEmails.length > 0
           ? await this.bookingRepository.findEmailsByBusiness(
@@ -58,6 +63,7 @@ export class BookingController {
               uniqueEmails,
             )
           : [];
+
       const previousEmailSet = new Set(previousEmails);
       const enrichedBookings = bookings.map((booking) => ({
         ...booking,
@@ -569,14 +575,16 @@ export class BookingController {
         return;
       }
 
+      const firstDayStr = `${year}-${month.toString().padStart(2, "0")}-01`;
+
       const bookings = await this.bookingRepository.findByBusinessAndMonth(
         req.businessId!,
         year,
         month,
       );
 
-      // Enriquecer con cliente_tipo (nuevo / recurrente)
-      const firstDayStr = `${year}-${month.toString().padStart(2, "0")}-01`;
+      // PERF: con los bookings ya cargados, lanzar la query de emails previos
+      // solo si hay clientes — evita un round-trip innecesario cuando no hay reservas.
       const uniqueEmails = [...new Set(bookings.map((b) => b.cliente_email))];
       const previousEmails =
         uniqueEmails.length > 0
@@ -586,6 +594,7 @@ export class BookingController {
               uniqueEmails,
             )
           : [];
+
       const previousEmailSet = new Set(previousEmails);
 
       const enriched = bookings.map((b) => ({

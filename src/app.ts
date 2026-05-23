@@ -2,7 +2,7 @@ import express, { Application } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
-import { authBurstLimiter, generalLimiter, publicLimiter, refreshLimiter, uploadLimiter } from './presentation/middlewares/rateLimiter.middleware';
+import { authBurstLimiter, generalLimiter, healthLimiter, publicLimiter, refreshLimiter, uploadLimiter } from './presentation/middlewares/rateLimiter.middleware';
 import { errorHandler } from './presentation/middlewares/errorHandler.middleware';
 import { requestLogger } from './presentation/middlewares/requestLogger.middleware';
 import authRoutes from './presentation/routes/auth.routes';
@@ -118,7 +118,7 @@ app.use('/api/domain',              generalLimiter);     // nuevo — faltaba
 app.use(requestLogger);
 
 // ── Health check ──────────────────────────────────────────────────────────────
-app.get("/health", (_req, res) => {
+app.get("/health", healthLimiter, (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 

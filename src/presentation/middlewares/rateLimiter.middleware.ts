@@ -57,9 +57,9 @@ export const generalLimiter: RateLimitRequestHandler = rateLimit({
   ),
 });
 
-// ── authLimiter — login / register / refresh ─────────────────────────────────
-// 10 req / 15 min: alineado con Node.js Best Practices (antes 20, demasiado
-// permisivo para brute force). Un humano olvidadizo no supera 5 intentos.
+// ── authLimiter — login / register ───────────────────────────────────────────
+// 10 req / 15 min: alineado con Node.js Best Practices. Un humano olvidadizo
+// no supera 5 intentos de login.
 export const authLimiter: RateLimitRequestHandler = rateLimit({
   ...baseOptions,
   windowMs: 15 * 60 * 1000,
@@ -67,6 +67,30 @@ export const authLimiter: RateLimitRequestHandler = rateLimit({
   handler:  makeHandler(
     "Demasiados intentos. Esperá 15 minutos antes de volver a intentarlo.",
   ),
+});
+
+// ── refreshLimiter — POST /auth/refresh ──────────────────────────────────────
+// Con tokens de 5 min de expiración (nuevo sistema asimétrico de Supabase),
+// un usuario activo durante 8 horas hace ~96 refreshes automáticos.
+// 200 req / 15 min por IP cubre hasta ~10 usuarios simultáneos en la misma
+// red sin bloquearlos, mientras sigue bloqueando floods automatizados.
+export const refreshLimiter: RateLimitRequestHandler = rateLimit({
+  ...baseOptions,
+  windowMs: 15 * 60 * 1000,
+  max:      200,
+  handler:  makeHandler(
+    "Demasiadas renovaciones de sesión. Esperá unos minutos.",
+  ),
+});
+
+// ── healthLimiter — GET /health ───────────────────────────────────────────────
+// UptimeRobot pinea cada 5 min = 12 req/hora = 288 req/día.
+// 60 req / 5 min es más que suficiente para el monitor + buffer de reintentos.
+export const healthLimiter: RateLimitRequestHandler = rateLimit({
+  ...baseOptions,
+  windowMs: 5 * 60 * 1000,
+  max:      60,
+  handler:  makeHandler("Demasiadas solicitudes al health check."),
 });
 
 // ── resetLimiter — request-reset y reset-password ────────────────────────────
@@ -133,5 +157,3 @@ export const publicLimiter: RateLimitRequestHandler = rateLimit({
 // ── Aliases de compatibilidad con imports del agente de frontend ──────────────
 export { authLimiter as authBurstLimiter };
 export { authLimiter as loginLimiter };
-
-export { authLimiter as refreshLimiter };
