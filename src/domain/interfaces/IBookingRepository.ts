@@ -1,4 +1,4 @@
-import { Booking, BookingEstado } from "../../domain/entities/Booking";
+import { Booking, BookingEstado } from "../entities/Booking";
 
 export interface BookingsByMonth {
   fecha: string;
