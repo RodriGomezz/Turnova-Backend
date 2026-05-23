@@ -7,21 +7,25 @@ import {
   NotFoundError,
   ForbiddenError,
   AppError,
+
 } from "../middlewares/errorHandler.middleware";
 import { getPlanLimits } from "../../domain/plan-limits";
 import { CreateBarberInput, UpdateBarberInput } from "../schemas/barber.schema";
+import { BookingRepository } from "../../infrastructure/database/BookingRepository";
 
 export class BarberController {
   private readonly barberRepository: BarberRepository;
   private readonly businessRepository: BusinessRepository;
   private readonly createBarberUseCase: CreateBarberUseCase;
   private readonly listBarbersUseCase: ListBarbersUseCase;
+  private readonly bookingRepository:  BookingRepository; 
 
   constructor() {
     this.barberRepository = new BarberRepository();
     this.businessRepository = new BusinessRepository();
     this.createBarberUseCase = new CreateBarberUseCase(this.barberRepository);
     this.listBarbersUseCase = new ListBarbersUseCase(this.barberRepository);
+    this.bookingRepository  = new BookingRepository();
   }
 
   list = async (
@@ -86,38 +90,54 @@ update = async (req: Request, res: Response, next: NextFunction): Promise<void> 
     if (!existing)                              throw new NotFoundError('Profesional');
     if (existing.business_id !== req.businessId) throw new ForbiddenError();
 
-    const barber = await this.barberRepository.update(id, input);
+    const barber = await this.barberRepository.update(id, req.businessId!, input);
     res.json({ barber });
   } catch (error) {
     next(error);
   }
 };
 
-  delete = async (
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> => {
-    try {
-      const id = req.params["id"] as string;
+ 
+// BarberController.ts — delete method
 
-      const existing = await this.barberRepository.findById(id);
-      if (!existing) throw new NotFoundError("Profesional");
-      if (existing.business_id !== req.businessId) throw new ForbiddenError();
+delete = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params['id'] as string;
+    console.log('[DELETE] 1. inicio - id:', id, 'businessId:', req.businessId);
 
-      const hardDelete =
-        String(req.query["hard"] ?? "").toLowerCase() === "true";
+    const existing = await this.barberRepository.findById(id);
+    console.log('[DELETE] 2. findById result:', existing);
 
-      if (hardDelete) {
-        await this.barberRepository.hardDelete(id);
-        res.json({ message: "Profesional eliminado correctamente" });
-        return;
-      }
+    if (!existing)                               throw new NotFoundError('Profesional');
+    if (existing.business_id !== req.businessId) throw new ForbiddenError();
 
-      await this.barberRepository.deactivate(id);
-      res.json({ message: "Profesional desactivado correctamente" });
-    } catch (error) {
-      next(error);
+    console.log('[DELETE] 3. ownership OK - activo:', existing.activo);
+
+    const hardDelete = String(req.query['hard'] ?? '').toLowerCase() === 'true';
+    console.log('[DELETE] 4. hardDelete:', hardDelete);
+
+    if (hardDelete) {
+      console.log('[DELETE] 5. ejecutando hard delete');
+      await this.barberRepository.hardDelete(id);
+      console.log('[DELETE] 6. hard delete completado');
+      res.json({ message: 'Profesional eliminado correctamente' });
+      return;
     }
-  };
+
+    // Early return solo aplica para soft delete
+    if (!existing.activo) {
+      console.log('[DELETE] 7. ya inactivo - early return soft delete');
+      res.json({ message: 'Profesional ya estaba desactivado' });
+      return;
+    }
+
+    console.log('[DELETE] 8. ejecutando deactivate');
+    await this.barberRepository.deactivate(id);
+    console.log('[DELETE] 9. deactivate completado');
+    res.json({ message: 'Profesional desactivado correctamente' });
+  } catch (error) {
+    console.log('[DELETE] ERROR:', error);
+    next(error);
+  }
+};
 }

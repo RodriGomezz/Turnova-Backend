@@ -48,27 +48,6 @@ export class BookingRepository implements IBookingRepository {
     return (data ?? []) as Booking[];
   }
 
-  async findByBusinessAndMonth(
-  businessId: string,
-  year: number,
-  month: number,
-): Promise<Booking[]> {
-  const { from, to } = this.buildMonthRange(year, month);
-
-  const { data, error } = await supabase
-    .from(this.table)
-    .select('*, barbers(nombre), services(nombre, duracion_minutos, precio, precio_hasta)')
-    .eq('business_id', businessId)
-    .neq('estado', 'cancelada')
-    .gte('fecha', from)
-    .lte('fecha', to)
-    .order('fecha',       { ascending: true })
-    .order('hora_inicio', { ascending: true });
-
-  if (error) throw new AppError(error.message, 500);
-  return (data ?? []) as Booking[];
-}
-
   async findByBarberAndDate(barberId: string, fecha: string): Promise<Booking[]> {
     const { data, error } = await supabase
       .from(this.table)
@@ -137,54 +116,6 @@ export class BookingRepository implements IBookingRepository {
     return (data ?? []).map((b: { cliente_email: string }) => b.cliente_email);
   }
 
-  async findPreviousClientMatchesByBusiness(
-    businessId: string,
-    beforeFecha: string,
-    emails: string[],
-    phones: string[],
-  ): Promise<Array<{ cliente_email: string; cliente_telefono: string }>> {
-    const requests: PromiseLike<{
-      data: { cliente_email: string; cliente_telefono: string }[] | null;
-      error: { message: string } | null;
-    }>[] = [];
-
-    if (emails.length > 0) {
-      requests.push(
-        supabase
-          .from(this.table)
-          .select("cliente_email, cliente_telefono")
-          .eq("business_id", businessId)
-          .lt("fecha", beforeFecha)
-          .neq("estado", "cancelada")
-          .in("cliente_email", emails),
-      );
-    }
-
-    if (phones.length > 0) {
-      requests.push(
-        supabase
-          .from(this.table)
-          .select("cliente_email, cliente_telefono")
-          .eq("business_id", businessId)
-          .lt("fecha", beforeFecha)
-          .neq("estado", "cancelada")
-          .in("cliente_telefono", phones),
-      );
-    }
-
-    if (requests.length === 0) return [];
-
-    const results = await Promise.all(requests);
-    const merged: Array<{ cliente_email: string; cliente_telefono: string }> = [];
-
-    for (const result of results) {
-      if (result.error) throw new AppError(result.error.message, 500);
-      merged.push(...(result.data ?? []));
-    }
-
-    return merged;
-  }
-
   async create(
     data: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at">,
   ): Promise<Booking> {
@@ -219,7 +150,30 @@ export class BookingRepository implements IBookingRepository {
     if (error) throw new AppError(error.message, 500);
   }
 
-  async countByMonth(
+  async findByBusinessAndMonth(
+    businessId: string,
+    year: number,
+    month: number,
+  ): Promise<Booking[]> {
+    const { from, to } = this.buildMonthRange(year, month);
+
+    const { data, error } = await supabase
+      .from(this.table)
+      .select(
+        "*, barbers(nombre), services(nombre, duracion_minutos, precio, precio_hasta)",
+      )
+      .eq("business_id", businessId)
+      .neq("estado", "cancelada")
+      .gte("fecha", from)
+      .lte("fecha", to)
+      .order("fecha",       { ascending: true })
+      .order("hora_inicio", { ascending: true });
+
+    if (error) throw new AppError(error.message, 500);
+    return (data ?? []) as Booking[];
+  }
+
+    async countByMonth(
     businessId: string,
     year: number,
     month: number,
@@ -243,6 +197,21 @@ export class BookingRepository implements IBookingRepository {
 
     return Object.entries(counts).map(([fecha, total]) => ({ fecha, total }));
   }
+  
+  async countFutureByBarber(barberId: string, businessId: string): Promise<number> {
+  const today = new Date().toISOString().split('T')[0];
+
+  const { count, error } = await supabase
+    .from(this.table)
+    .select('*', { count: 'exact', head: true })
+    .eq('barber_id', barberId)
+    .eq('business_id', businessId)
+    .gte('fecha', today)
+    .in('estado', ['pendiente', 'confirmada']);
+
+  if (error) throw new AppError(error.message, 500);
+  return count ?? 0;
+}
 
   async countByBusinessAndMonth(
     businessId: string,
@@ -281,7 +250,7 @@ export class BookingRepository implements IBookingRepository {
       hora_fin: string;
       barber_id: string;
       service_id: string;
-      estado: BookingEstado;
+      estado: "modificada" | "confirmada" | "pendiente";
       modified_at: string;
     },
   ): Promise<Booking> {
@@ -312,6 +281,52 @@ export class BookingRepository implements IBookingRepository {
 
     if (error) throw new AppError(error.message, 500);
     return updated as Booking;
+  }
+
+  async findPreviousClientMatchesByBusiness(
+    businessId: string,
+    beforeFecha: string,
+    emails: string[],
+    phones: string[],
+  ): Promise<Pick<Booking, "cliente_email" | "cliente_telefono">[]> {
+    // Una sola query con OR entre emails y teléfonos.
+    // Supabase no soporta OR entre columnas directamente — usamos dos queries
+    // en paralelo y deduplicamos en memoria. Costo: 2 queries vs. N queries.
+    const [byEmail, byPhone] = await Promise.all([
+      emails.length > 0
+        ? supabase
+            .from(this.table)
+            .select("cliente_email, cliente_telefono")
+            .eq("business_id", businessId)
+            .lt("fecha", beforeFecha)
+            .neq("estado", "cancelada")
+            .in("cliente_email", emails)
+        : Promise.resolve({ data: [], error: null }),
+      phones.length > 0
+        ? supabase
+            .from(this.table)
+            .select("cliente_email, cliente_telefono")
+            .eq("business_id", businessId)
+            .lt("fecha", beforeFecha)
+            .neq("estado", "cancelada")
+            .in("cliente_telefono", phones)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (byEmail.error) throw new AppError(byEmail.error.message, 500);
+    if (byPhone.error) throw new AppError(byPhone.error.message, 500);
+
+    // Deduplicar por email+telefono
+    const seen = new Set<string>();
+    const result: Pick<Booking, "cliente_email" | "cliente_telefono">[] = [];
+    for (const row of [...(byEmail.data ?? []), ...(byPhone.data ?? [])]) {
+      const key = `${row.cliente_email}|${row.cliente_telefono}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(row as Pick<Booking, "cliente_email" | "cliente_telefono">);
+      }
+    }
+    return result;
   }
 
 }

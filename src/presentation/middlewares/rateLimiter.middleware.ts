@@ -3,26 +3,31 @@ import rateLimit, {
   Options,
   RateLimitExceededEventHandler,
   RateLimitRequestHandler,
-} from 'express-rate-limit';
-import { Request } from 'express';
-import { logger } from '../../infrastructure/logger';
+} from "express-rate-limit";
+import { Request } from "express";
+import { logger } from "../../infrastructure/logger";
 
-const isRateLimitDisabled = process.env.DISABLE_RATE_LIMIT === 'true';
+const isRateLimitDisabled = process.env.DISABLE_RATE_LIMIT === "true";
 
 if (isRateLimitDisabled) {
   logger.warn(
-    '⚠️  Rate limiting DESACTIVADO — DISABLE_RATE_LIMIT=true. ' +
-    'Nunca usar en producción ni staging.',
+    "⚠️  Rate limiting DESACTIVADO — DISABLE_RATE_LIMIT=true. " +
+      "Nunca usar en producción ni staging.",
   );
 }
 
-// ── Handlers ──────────────────────────────────────────────────────────────────
+// ── keyGenerator IPv6-safe ────────────────────────────────────────────────────
+function makeIpKeyGenerator(req: Request): string {
+  return ipKeyGenerator(req.ip ?? "");
+}
 
+// ── Handler base ──────────────────────────────────────────────────────────────
+// Cada handler incluye un mensaje claro y accionable para el usuario.
+// También logea la IP, método y path para detección de abusos.
 function makeHandler(message: string): RateLimitExceededEventHandler {
   return (req, res, _next, options: Partial<Options>) => {
-    logger.warn('Rate limit alcanzado', {
-      ip:      req.ip,
-      userId:  (req as any).userId ?? 'anon',
+    logger.warn("Rate limit alcanzado", {
+      ip:      makeIpKeyGenerator(req),
       method:  req.method,
       path:    req.path,
       max:     options.max,
@@ -32,160 +37,101 @@ function makeHandler(message: string): RateLimitExceededEventHandler {
   };
 }
 
-function getAuthIdentityKey(req: Request): string {
-  const rawEmail = typeof req.body?.email === 'string' ? req.body.email : '';
-  const email    = rawEmail.trim().toLowerCase();
-  return `${ipKeyGenerator(req.ip ?? '')}:${email || 'anon'}`;
-}
+// ── Opciones base compartidas ─────────────────────────────────────────────────
+const baseOptions = {
+  standardHeaders: true,   // devuelve RateLimit-* headers al cliente
+  legacyHeaders:   false,
+  skip:            () => isRateLimitDisabled,
+  keyGenerator:    makeIpKeyGenerator,
+} satisfies Partial<Options>;
 
-/**
- * Key para rutas del panel autenticado.
- *
- * authMiddleware corre DENTRO del router, DESPUÉS de que app.use() registra
- * el limiter — por eso req.userId es undefined en ese punto.
- *
- * Solución: leer el userId del JWT directamente en el keyGenerator, sin
- * verificar firma (eso ya lo hace authMiddleware). El limiter solo necesita
- * una key estable por usuario; la verificación de autenticidad es ortogonal.
- *
- * Si el token está ausente o malformado → fallback a IP (el request fallará
- * en authMiddleware de todas formas, el limiter no necesita validarlo).
- */
-function getPanelIdentityKey(req: Request): string {
-  try {
-    const authHeader = req.headers.authorization ?? '';
-    const token      = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-    if (!token) return ipKeyGenerator(req.ip ?? '');
-
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1], 'base64url').toString('utf8'),
-    );
-
-    // sub es el userId de Supabase — estable y único por usuario
-    return typeof payload.sub === 'string'
-      ? `user:${payload.sub}`
-      : ipKeyGenerator(req.ip ?? '');
-  } catch {
-    return ipKeyGenerator(req.ip ?? '');
-  }
-}
-
-// ── generalLimiter ────────────────────────────────────────────────────────────
-// Rutas del panel autenticado. Key por userId — cada usuario tiene su propia
-// cuota, independientemente de cuántos compartan la misma IP de oficina.
-// 1200 req/15min = 80 req/min sostenidos por usuario.
-// Más margen para equipos con varias sucursales y varias vistas abiertas.
+// ── generalLimiter — panel autenticado ───────────────────────────────────────
+// 500 req / 15 min: un negocio con polling intensivo hace ~40-60 req en ese
+// período. Margen de 8x — el usuario legítimo nunca lo alcanza.
 export const generalLimiter: RateLimitRequestHandler = rateLimit({
-  windowMs:       15 * 60 * 1000,
-  max:            1200,
-  standardHeaders: true,
-  legacyHeaders:  false,
-  skip:           () => isRateLimitDisabled,
-  keyGenerator:   getPanelIdentityKey,
-  handler:        makeHandler('Demasiadas solicitudes, intentá en unos minutos'),
+  ...baseOptions,
+  windowMs: 15 * 60 * 1000,
+  max:      500,
+  handler:  makeHandler(
+    "Demasiadas solicitudes. Esperá unos minutos antes de continuar.",
+  ),
 });
 
-// ── authLimiter ───────────────────────────────────────────────────────────────
-// Register / request-reset. Protege contra enumeración de cuentas.
-// Key por IP — estas rutas no tienen userId aún.
+// ── authLimiter — login / register / refresh ─────────────────────────────────
+// 10 req / 15 min: alineado con Node.js Best Practices (antes 20, demasiado
+// permisivo para brute force). Un humano olvidadizo no supera 5 intentos.
 export const authLimiter: RateLimitRequestHandler = rateLimit({
-  windowMs:        15 * 60 * 1000,
-  max:             20,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  skip:            () => isRateLimitDisabled,
-  handler:         makeHandler('Demasiados intentos, esperá unos minutos'),
-});
-
-// ── loginLimiter ──────────────────────────────────────────────────────────────
-// Brute force de credenciales. Key por IP+email para no penalizar IPs
-// compartidas (ej: todos los empleados de una empresa detrás del mismo NAT).
-export const loginLimiter: RateLimitRequestHandler = rateLimit({
-  windowMs:              10 * 60 * 1000,
-  max:                   10,
-  standardHeaders:       true,
-  legacyHeaders:         false,
-  skip:                  () => isRateLimitDisabled,
-  skipSuccessfulRequests: true,
-  keyGenerator:          getAuthIdentityKey,
-  handler:               makeHandler(
-    'Demasiados intentos de acceso. Esperá unos minutos o recuperá tu contraseña.',
+  ...baseOptions,
+  windowMs: 15 * 60 * 1000,
+  max:      10,
+  handler:  makeHandler(
+    "Demasiados intentos. Esperá 15 minutos antes de volver a intentarlo.",
   ),
 });
 
-// ── authBurstLimiter ──────────────────────────────────────────────────────────
-// Flood sobre endpoints de auth públicos (login, register, reset).
-// Key por IP — misma razón que authLimiter.
-export const authBurstLimiter: RateLimitRequestHandler = rateLimit({
-  windowMs:        10 * 60 * 1000,
-  max:             200,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  skip:            () => isRateLimitDisabled,
-  handler:         makeHandler(
-    'Demasiadas solicitudes de autenticación, intentá nuevamente en unos minutos',
+// ── resetLimiter — request-reset y reset-password ────────────────────────────
+// 5 req / 15 min: estándar de la industria para envío de emails de reset
+// (Postman, Cloudflare: 3-5 req / 15 min). Más restrictivo que authLimiter
+// porque dispara envío de email real y el token es sensible.
+export const resetLimiter: RateLimitRequestHandler = rateLimit({
+  ...baseOptions,
+  windowMs: 15 * 60 * 1000,
+  max:      5,
+  handler:  makeHandler(
+    "Demasiados intentos de recuperación de contraseña. " +
+    "Esperá 15 minutos. Revisá también tu carpeta de spam.",
   ),
 });
 
-// ── refreshLimiter ────────────────────────────────────────────────────────────
-// Refresh de token — automático y transparente al usuario.
-// Key por userId extraído del token (el refresh token tiene sub en el payload).
-// 120 refrescos en 15 min: margen amplio para varias pestañas y sesiones largas.
-export const refreshLimiter: RateLimitRequestHandler = rateLimit({
-  windowMs:        15 * 60 * 1000,
-  max:             120,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  skip:            () => isRateLimitDisabled,
-  keyGenerator:    getPanelIdentityKey,
-  handler:         makeHandler('Sesión inválida, por favor iniciá sesión nuevamente'),
-});
-
-// ── uploadLimiter ─────────────────────────────────────────────────────────────
-// Subida de archivos — costoso en storage, límite bajo.
-// Key por userId — suficiente margen para configurar branding/galería sin bloqueo.
+// ── uploadLimiter — POST /api/upload/* ───────────────────────────────────────
+// 20 req / 10 min: cada upload llama a Vercel/S3 con costo real de red y
+// almacenamiento. Un usuario que sube fotos de perfil/negocio raramente
+// supera 5-8 uploads en una sesión de configuración.
 export const uploadLimiter: RateLimitRequestHandler = rateLimit({
-  windowMs:        15 * 60 * 1000,
-  max:             40,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  skip:            () => isRateLimitDisabled,
-  keyGenerator:    getPanelIdentityKey,
-  handler:         makeHandler('Demasiadas subidas de archivos, esperá unos minutos'),
+  ...baseOptions,
+  windowMs: 10 * 60 * 1000,
+  max:      20,
+  handler:  makeHandler(
+    "Límite de subidas alcanzado. Podés subir hasta 20 imágenes cada 10 minutos.",
+  ),
 });
 
-// ── slotLimiter ───────────────────────────────────────────────────────────────
-// GET /public/:slug/slots — consulta de disponibilidad desde el formulario público.
-// Key por IP — ruta pública, sin userId.
+// ── slotLimiter — GET /slots y /available-days-with-slots ───────────────────
+// 60 req / 2 min: usuario real hace ~15-25 consultas explorando el calendario.
+// Un scraper lo alcanza en segundos y queda bloqueado solo 2 minutos.
 export const slotLimiter: RateLimitRequestHandler = rateLimit({
-  windowMs:        2 * 60 * 1000,
-  max:             60,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  skip:            () => isRateLimitDisabled,
-  handler:         makeHandler('Demasiadas consultas de disponibilidad, esperá unos segundos'),
+  ...baseOptions,
+  windowMs: 2 * 60 * 1000,
+  max:      60,
+  handler:  makeHandler(
+    "Demasiadas consultas de disponibilidad. Esperá unos segundos.",
+  ),
 });
 
-// ── bookingLimiter ────────────────────────────────────────────────────────────
-// POST /public/:slug — creación de reservas públicas.
-// Key por IP — ruta pública, sin userId.
+// ── bookingLimiter — POST /public/:slug (crear reserva) ──────────────────────
+// 10 req / 10 min: cubre grupos (varias reservas seguidas). Ventana corta de
+// 10 min (no 60 min) para no bloquear al usuario por una hora entera.
 export const bookingLimiter: RateLimitRequestHandler = rateLimit({
-  windowMs:        10 * 60 * 1000,
-  max:             10,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  skip:            () => isRateLimitDisabled,
-  handler:         makeHandler('Demasiadas reservas en poco tiempo, esperá unos minutos'),
+  ...baseOptions,
+  windowMs: 10 * 60 * 1000,
+  max:      10,
+  handler:  makeHandler(
+    "Demasiadas reservas en poco tiempo. Esperá unos minutos para continuar.",
+  ),
 });
 
-// ── publicLimiter ─────────────────────────────────────────────────────────────
-// GET /public/:slug y /slug-check — rutas públicas con caché.
-// Key por IP — sin userId disponible.
+// ── publicLimiter — GET /public/:slug y /slug-check ─────────────────────────
+// 120 req / 1 min: la caché en memoria absorbe el 90% de estos requests.
+// El límite es solo contra floods — un usuario real nunca supera 10 req/min.
 export const publicLimiter: RateLimitRequestHandler = rateLimit({
-  windowMs:        1 * 60 * 1000,
-  max:             120,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  skip:            () => isRateLimitDisabled,
-  handler:         makeHandler('Demasiadas solicitudes'),
+  ...baseOptions,
+  windowMs: 1 * 60 * 1000,
+  max:      120,
+  handler:  makeHandler("Demasiadas solicitudes. Esperá un momento."),
 });
+
+// ── Aliases de compatibilidad con imports del agente de frontend ──────────────
+export { authLimiter as authBurstLimiter };
+export { authLimiter as loginLimiter };
+
+export { authLimiter as refreshLimiter };

@@ -5,6 +5,7 @@ import {
   GetAvailableSlotsUseCase,
   GetAvailableSlotsInput,
 } from "./GetAvailableSlotsUseCase";
+import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
 
 export interface CreateBookingInput {
   business_id: string;
@@ -48,7 +49,7 @@ export class CreateBookingUseCase {
       );
     }
 
-    return this.bookingRepository.create({
+    const booking = await this.bookingRepository.create({
       business_id: input.business_id,
       barber_id: input.barber_id,
       service_id: input.service_id,
@@ -60,5 +61,12 @@ export class CreateBookingUseCase {
       hora_fin: input.hora_fin,
       estado: input.auto_confirmar ? "confirmada" : "pendiente",
     });
+
+    // Invalidar cache de slots para que el próximo request refleje
+    // la nueva reserva — evita que otro cliente vea el slot como disponible
+    // durante el TTL del cache (2 min).
+    invalidateSlotsCache(input.business_id);
+
+    return booking;
   }
 }

@@ -15,7 +15,7 @@ export interface IBookingRepository {
     businessId: string,
     from: string,
     to: string,
-  ): Promise<Pick<Booking, "id" | "fecha" | "hora_inicio" | "hora_fin">[]>;
+  ): Promise<Pick<Booking, "fecha" | "hora_inicio" | "hora_fin">[]>;
   findPendingReminders(): Promise<Booking[]>;
   findEmailsByBusiness(
     businessId: string,
@@ -32,7 +32,7 @@ export interface IBookingRepository {
       hora_fin: string;
       barber_id: string;
       service_id: string;
-      estado: "modificada" | "confirmada" | "pendiente";
+      estado: "modificada";
       modified_at: string;
     },
   ): Promise<Booking>;
@@ -67,5 +67,4 @@ export interface IBookingRepository {
     year: number,
     month: number,
   ): Promise<number>;
-  countFutureByBarber(barberId: string, businessId: string): Promise<number>;
 }

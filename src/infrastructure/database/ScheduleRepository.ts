@@ -19,13 +19,13 @@ export class ScheduleRepository implements IScheduleRepository {
   }
 
   /**
-   * FIX PERF: en lugar de traer todos los schedules del día para todos los
-   * barberos y filtrar en memoria, hacemos dos queries paralelas acotadas:
-   *   1. schedule propio del barbero para ese día
-   *   2. schedule del negocio (barber_id IS NULL) para ese día
+   * Retorna el schedule efectivo para un barbero en un día dado.
    *
-   * Precedencia: barbero > negocio.
-   * Si el barbero no tiene schedule para ese día → fallback al negocio.
+   * Semántica (opt-in explícito):
+   *   - Barbero SIN schedules propios → nunca fue configurado → hereda el negocio.
+   *   - Barbero CON schedules propios → trabaja SOLO esos días; sin fallback al negocio.
+   *
+   * Un barbero con Lun+Jue configurados NO trabaja Mar aunque el negocio sí lo haga.
    */
   async findForBarber(
     businessId: string,
@@ -38,8 +38,7 @@ export class ScheduleRepository implements IScheduleRepository {
         .select("*")
         .eq("business_id", businessId)
         .eq("barber_id", barberId)
-        .eq("activo", true)
-        .order("dia_semana", { ascending: true }),
+        .eq("activo", true),
 
       supabase
         .from(this.table)
@@ -51,33 +50,30 @@ export class ScheduleRepository implements IScheduleRepository {
         .maybeSingle(),
     ]);
 
-    if (barberResult.error)  throw new AppError(barberResult.error.message,  500);
+    if (barberResult.error)   throw new AppError(barberResult.error.message, 500);
     if (businessResult.error) throw new AppError(businessResult.error.message, 500);
 
-    // Barbero tiene schedule propio → usarlo (no importa si el negocio también tiene)
     const barberSchedules = (barberResult.data ?? []) as Schedule[];
-    const barberScheduleForDay =
-      barberSchedules.find((schedule) => schedule.dia_semana === diaSemana) ?? null;
-    if (barberSchedules.length > 0) return barberScheduleForDay;
+    const hasOwnSchedules  = barberSchedules.length > 0;
 
-    // Sin schedule propio → usar el del negocio como fallback
+    if (hasOwnSchedules) {
+      // Configurado: solo trabaja los días que activó. Si no activó este día → null.
+      return barberSchedules.find((s) => s.dia_semana === diaSemana) ?? null;
+    }
+
+    // Sin configuración propia → hereda el horario del negocio para este día.
     return (businessResult.data ?? null) as Schedule | null;
   }
 
   /**
-   * FIX BUG: la versión anterior tenía una condición de precedencia rota.
+   * Retorna los schedules efectivos del mes completo para un barbero.
    *
-   * Problema original:
-   *   if (!existing || s.barber_id === barberId) { byDay.set(...) }
+   * Misma semántica que findForBarber:
+   *   - Barbero SIN schedules propios → hereda TODOS los días del negocio.
+   *   - Barbero CON schedules propios → devuelve SOLO sus días. Sin relleno.
    *
-   * Si el schedule del barbero llegaba ANTES que el del negocio en el array,
-   * luego al procesar el del negocio: !existing=false y barber_id===barberId=false
-   * → el negocio sobreescribía al barbero. Orden-dependiente = bug silencioso.
-   *
-   * Fix: dos pasadas explícitas.
-   *   Pasada 1: cargar todos los schedules del negocio (barber_id IS NULL).
-   *   Pasada 2: sobreescribir con los del barbero (siempre ganan).
-   * El orden de llegada de Supabase ya no importa.
+   * Usado por GetAvailableDaysUseCase y GetAllSlotsForDaysUseCase para calcular
+   * el calendario completo en memoria (evita N queries por día).
    */
   async findAllByBusiness(
     businessId: string,
@@ -85,31 +81,20 @@ export class ScheduleRepository implements IScheduleRepository {
   ): Promise<Schedule[]> {
     const schedules = await this.findRawByBusiness(businessId);
 
-    // Sin barberId → solo horarios del negocio (sin barbero asignado)
     if (!barberId) {
       return schedules.filter((s) => s.barber_id === null);
     }
 
-    // Con barberId → precedencia barbero > negocio, por día.
-    // Si el barbero tiene horario propio solo para algunos días,
-    // los días faltantes deben seguir heredando del negocio.
-    const byDay = new Map<number, Schedule>();
+    const barberSchedules   = schedules.filter((s) => s.barber_id === barberId);
+    const businessSchedules = schedules.filter((s) => s.barber_id === null);
 
-    schedules
-      .filter((s) => s.barber_id === null)
-      .forEach((schedule) => {
-        byDay.set(schedule.dia_semana, schedule);
-      });
+    if (barberSchedules.length > 0) {
+      // Barbero configurado → solo sus días, sin heredar días del negocio.
+      return barberSchedules;
+    }
 
-    schedules
-      .filter((s) => s.barber_id === barberId)
-      .forEach((schedule) => {
-        byDay.set(schedule.dia_semana, schedule);
-      });
-
-    return Array.from(byDay.values()).sort(
-      (a, b) => a.dia_semana - b.dia_semana,
-    );
+    // Sin configuración propia → hereda todo el negocio.
+    return businessSchedules;
   }
 
   async findRawByBusiness(businessId: string): Promise<Schedule[]> {

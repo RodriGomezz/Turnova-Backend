@@ -272,8 +272,8 @@ export class GetDaySummaryUseCase {
       emailsHoy,
       phonesHoy,
     );
-    const previousEmailSet = new Set(previousClients.map((client) => client.cliente_email));
-    const previousPhoneSet = new Set(previousClients.map((client) => client.cliente_telefono));
+    const previousEmailSet = new Set(previousClients.map((client: { cliente_email: string; cliente_telefono: string }) => client.cliente_email));
+    const previousPhoneSet = new Set(previousClients.map((client: { cliente_email: string; cliente_telefono: string }) => client.cliente_telefono));
 
     return activos.filter((booking, index, array) => {
       const firstMatchIndex = array.findIndex(

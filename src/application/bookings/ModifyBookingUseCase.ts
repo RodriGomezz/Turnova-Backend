@@ -39,12 +39,21 @@ export class ModifyBookingUseCase {
 
     const targetBarberId = input.barberId ?? booking.barber_id;
 
+    // Parsear como fecha local para evitar el bug de timezone UTC.
+    // new Date("2025-01-15") se interpreta como UTC midnight y en TZ=America/Montevideo
+    // (-03:00) getDay() devuelve el día anterior. El constructor con partes numéricas
+    // siempre crea una fecha en hora local del servidor.
+    const [fechaYear, fechaMonth, fechaDay] = input.fecha.split("-").map(Number);
+    const diaSemana = new Date(fechaYear, fechaMonth - 1, fechaDay).getDay() as
+      | 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
     // Verificar que el nuevo slot está disponible
     const [isBlocked, schedule, existingBookings] = await Promise.all([
       this.blockedDateRepository.isBlocked(input.businessId, targetBarberId, input.fecha),
       this.scheduleRepository.findForBarber(
-        input.businessId, targetBarberId,
-        new Date(input.fecha).getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6,
+        input.businessId,
+        targetBarberId,
+        diaSemana,
       ),
       this.bookingRepository.findByBarberAndDate(targetBarberId, input.fecha),
     ]);
@@ -57,7 +66,7 @@ export class ModifyBookingUseCase {
 
     // Verificar colisión — excluir la misma reserva que se está modificando
     const collision = existingBookings.some((b) => {
-      if (b.id === input.bookingId) return false; // ignorar la propia reserva
+      if (b.id === input.bookingId) return false;
       if (b.estado === "cancelada")  return false;
       const bStart = this.toMin(b.hora_inicio);
       const bEnd   = this.toMin(b.hora_fin);
@@ -78,8 +87,6 @@ export class ModifyBookingUseCase {
       modified_at: new Date().toISOString(),
     });
 
-    // Invalidar cache de slots del mes afectado
-    const [year, month] = input.fecha.split("-").map(Number);
     invalidateSlotsCache(input.businessId);
 
     return updated;
