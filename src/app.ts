@@ -118,9 +118,9 @@ app.use('/api/domain',              generalLimiter);     // nuevo — faltaba
 app.use(requestLogger);
 
 // ── Health check ──────────────────────────────────────────────────────────────
-app.get("/health", healthLimiter, (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+// app.get("/health", healthLimiter, (_req, res) => {
+//   res.json({ status: "ok", timestamp: new Date().toISOString() });
+// });
 
 // ── Rutas ─────────────────────────────────────────────────────────────────────
 app.use("/api/auth",          authRoutes);

@@ -103,40 +103,24 @@ update = async (req: Request, res: Response, next: NextFunction): Promise<void> 
 delete = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params['id'] as string;
-    console.log('[DELETE] 1. inicio - id:', id, 'businessId:', req.businessId);
-
     const existing = await this.barberRepository.findById(id);
-    console.log('[DELETE] 2. findById result:', existing);
-
     if (!existing)                               throw new NotFoundError('Profesional');
     if (existing.business_id !== req.businessId) throw new ForbiddenError();
-
-    console.log('[DELETE] 3. ownership OK - activo:', existing.activo);
-
     const hardDelete = String(req.query['hard'] ?? '').toLowerCase() === 'true';
-    console.log('[DELETE] 4. hardDelete:', hardDelete);
-
     if (hardDelete) {
-      console.log('[DELETE] 5. ejecutando hard delete');
       await this.barberRepository.hardDelete(id);
-      console.log('[DELETE] 6. hard delete completado');
       res.json({ message: 'Profesional eliminado correctamente' });
       return;
     }
 
     // Early return solo aplica para soft delete
     if (!existing.activo) {
-      console.log('[DELETE] 7. ya inactivo - early return soft delete');
       res.json({ message: 'Profesional ya estaba desactivado' });
       return;
     }
-
-    console.log('[DELETE] 8. ejecutando deactivate');
     await this.barberRepository.deactivate(id);
-    console.log('[DELETE] 9. deactivate completado');
     res.json({ message: 'Profesional desactivado correctamente' });
   } catch (error) {
-    console.log('[DELETE] ERROR:', error);
     next(error);
   }
 };
