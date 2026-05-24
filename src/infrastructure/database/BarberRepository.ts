@@ -83,21 +83,26 @@ async deactivate(id: string): Promise<void> {
   if (error) throw new AppError(error.message, 500);
 }
 
-// BarberRepository.ts — agregar logs en hardDelete
 async hardDelete(id: string): Promise<void> {
-  // Paso 1: cancelar reservas futuras del barbero
-  // No podemos nullificar barber_id (NOT NULL constraint)
-  // Cancelamos las pendientes/confirmadas para liberar los slots
-  const today = new Date().toISOString().split('T')[0];
-  
-  const { error: cancelError } = await supabase
+  // Paso 1: verificar que no haya reservas futuras pendientes o confirmadas
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  const { count, error: countError } = await supabase
     .from('bookings')
-    .update({ estado: 'cancelada' })
+    .select('*', { count: 'exact', head: true })
     .eq('barber_id', id)
     .gte('fecha', today)
     .in('estado', ['pendiente', 'confirmada']);
 
-  if (cancelError) throw new AppError(cancelError.message, 500);
+  if (countError) throw new AppError(countError.message, 500);
+
+  if ((count ?? 0) > 0) {
+    throw new AppError(
+      `No se puede eliminar el profesional porque tiene ${count} reserva${count === 1 ? '' : 's'} pendiente${count === 1 ? '' : 's'} o confirmada${count === 1 ? '' : 's'}. Cancelalas primero.`,
+      409,
+    );
+  }
 
   // Paso 2: eliminar schedules y blocked_dates propios del barbero
   const { error: schedError } = await supabase
