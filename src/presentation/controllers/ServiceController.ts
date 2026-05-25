@@ -12,7 +12,8 @@ export class ServiceController {
 
   list = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const services = await this.serviceRepository.findByBusiness(req.businessId!);
+      // El panel necesita ver activos e inactivos para mostrar el botón reactivar
+      const services = await this.serviceRepository.findAllByBusiness(req.businessId!);
       res.json({ services });
     } catch (error) {
       next(error);
@@ -58,6 +59,7 @@ export class ServiceController {
     }
   };
 
+  // Soft delete — desactiva el servicio (activo = false)
   delete = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const id = req.params["id"] as string;
@@ -68,6 +70,38 @@ export class ServiceController {
 
       await this.serviceRepository.deactivate(id);
       res.json({ message: "Servicio desactivado correctamente" });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Reactiva un servicio desactivado
+  reactivate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const id = req.params["id"] as string;
+
+      const existing = await this.serviceRepository.findById(id);
+      if (!existing) throw new NotFoundError("Servicio");
+      if (existing.business_id !== req.businessId) throw new ForbiddenError();
+
+      const service = await this.serviceRepository.reactivate(id);
+      res.json({ service });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Hard delete — elimina físicamente el servicio
+  hardDelete = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const id = req.params["id"] as string;
+
+      const existing = await this.serviceRepository.findById(id);
+      if (!existing) throw new NotFoundError("Servicio");
+      if (existing.business_id !== req.businessId) throw new ForbiddenError();
+
+      await this.serviceRepository.hardDelete(id);
+      res.json({ message: "Servicio eliminado correctamente" });
     } catch (error) {
       next(error);
     }

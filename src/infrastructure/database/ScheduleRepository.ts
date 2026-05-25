@@ -1,6 +1,6 @@
 import { supabase } from "./supabase.client";
 import { Schedule } from "../../domain/entities/Schedule";
-import { AppError } from "../../domain/errors";
+import { AppError, ConflictError } from "../../domain/errors";
 import { IScheduleRepository } from "../../domain/interfaces/IScheduleRepository";
 
 export class ScheduleRepository implements IScheduleRepository {
@@ -115,6 +115,12 @@ export class ScheduleRepository implements IScheduleRepository {
       .select()
       .single();
 
+    // 23505 = unique_violation — el horario para ese día ya existe
+    if (error?.code === "23505") {
+      throw new ConflictError(
+        `Ya existe un horario para el día ${data.dia_semana} en este negocio`,
+      );
+    }
     if (error) throw new AppError(error.message, 500);
     return created as Schedule;
   }

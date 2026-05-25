@@ -30,6 +30,19 @@ export class ServiceRepository implements IServiceRepository {
     return (data ?? []) as Service[];
   }
 
+  /** Devuelve activos e inactivos — para el panel de administración */
+  async findAllByBusiness(businessId: string): Promise<Service[]> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("*")
+      .eq("business_id", businessId)
+      .order("activo", { ascending: false })
+      .order("created_at", { ascending: true });
+
+    if (error) throw new AppError(error.message, 500);
+    return (data ?? []) as Service[];
+  }
+
   async create(data: Omit<Service, "id" | "activo" | "created_at">): Promise<Service> {
     const { data: created, error } = await supabase
       .from(this.table)
@@ -58,6 +71,29 @@ export class ServiceRepository implements IServiceRepository {
     const { error } = await supabase
       .from(this.table)
       .update({ activo: false })
+      .eq("id", id);
+
+    if (error) throw new AppError(error.message, 500);
+  }
+
+  /** Reactiva un servicio previamente desactivado */
+  async reactivate(id: string): Promise<Service> {
+    const { data: updated, error } = await supabase
+      .from(this.table)
+      .update({ activo: true })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw new AppError(error.message, 500);
+    return updated as Service;
+  }
+
+  /** Hard delete — elimina físicamente el servicio de la BD */
+  async hardDelete(id: string): Promise<void> {
+    const { error } = await supabase
+      .from(this.table)
+      .delete()
       .eq("id", id);
 
     if (error) throw new AppError(error.message, 500);

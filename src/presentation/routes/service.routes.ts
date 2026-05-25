@@ -17,5 +17,7 @@ router.get("/", serviceController.list);
 router.post("/", invalidatePublicCache, validate(createServiceSchema), serviceController.create);
 router.put("/:id", invalidatePublicCache, validate(updateServiceSchema), serviceController.update);
 router.delete("/:id", invalidatePublicCache, serviceController.delete);
+router.patch("/:id/reactivate", invalidatePublicCache, serviceController.reactivate);
+router.delete("/:id/hard", invalidatePublicCache, serviceController.hardDelete);
 
 export default router;
