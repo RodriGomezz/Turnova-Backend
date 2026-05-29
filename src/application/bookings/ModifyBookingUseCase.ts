@@ -4,6 +4,7 @@ import { IBlockedDateRepository } from "../../domain/interfaces/IBlockedDateRepo
 import { Booking } from "../../domain/entities/Booking";
 import { AppError, NotFoundError, ConflictError } from "../../domain/errors";
 import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
+import { logger } from "../../infrastructure/logger";
 
 export interface ModifyBookingInput {
   bookingId:  string;
@@ -88,6 +89,16 @@ export class ModifyBookingUseCase {
     });
 
     invalidateSlotsCache(input.businessId);
+
+    logger.info("Reserva modificada", {
+      bookingId:     input.bookingId,
+      businessId:    input.businessId,
+      fechaAnterior: booking.fecha,
+      fechaNueva:    input.fecha,
+      horaAnterior:  booking.hora_inicio,
+      horaNueva:     input.horaInicio,
+      barberId:      targetBarberId,
+    });
 
     return updated;
   }

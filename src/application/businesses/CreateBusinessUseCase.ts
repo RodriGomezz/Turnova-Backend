@@ -5,6 +5,7 @@ import { ConflictError } from "../../domain/errors";
 import { vercelService } from "../../infrastructure/services/vercel.service";
 import { TRIAL_DAYS } from "../../domain/plan-prices";
 import { registerSlug } from "../../infrastructure/cache/slug.cache";
+import { logger } from "../../infrastructure/logger";
 
 export interface CreateBusinessInput {
   nombre: string;
@@ -93,9 +94,24 @@ export class CreateBusinessUseCase {
 
       await this.userRepository.addBusinessAccess(input.userId, business.id);
     } catch (error) {
-      await this.businessRepository.delete(business.id).catch(() => {});
+      logger.error("Error al crear usuario/acceso — haciendo rollback del negocio", {
+        businessId: business.id,
+        slug: business.slug,
+        userId: input.userId,
+        error: error instanceof Error ? error.message : error,
+      });
+      await this.businessRepository.delete(business.id).catch((rbErr) =>
+        logger.error("Error en rollback del negocio", { businessId: business.id, error: rbErr }),
+      );
       throw error;
     }
+
+    logger.info("Negocio creado", {
+      businessId: business.id,
+      slug:       business.slug,
+      userId:     input.userId,
+      plan:       business.plan,
+    });
 
     // Registrar dominios en Vercel en background — no bloquea ni rompe el flujo
     vercelService.provisionDomains(business.slug).catch(() => {});

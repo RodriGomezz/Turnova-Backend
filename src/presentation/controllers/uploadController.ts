@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { supabase }          from "../../infrastructure/database/supabase.client";
 import { BarberRepository }  from "../../infrastructure/database/BarberRepository";
 import { ForbiddenError, NotFoundError, ValidationError } from "../../domain/errors";
+import { logger } from "../../infrastructure/logger";
 
 // ── Tipos de asset permitidos para negocios ───────────────────────────────────
 // Whitelist explícita: previene path traversal en Supabase Storage.
@@ -42,7 +43,12 @@ export const uploadController = {
     // SEC: verificar que el barbero pertenece al negocio del token
     const barber = await barberRepository.findById(barberId);
     if (!barber)                                   throw new NotFoundError("Profesional");
-    if (barber.business_id !== req.businessId!)    throw new ForbiddenError();
+    if (barber.business_id !== req.businessId!) {
+      logger.warn("IDOR bloqueado: intento de subir foto de barbero ajeno", {
+        businessId: req.businessId, barberId, ownerBusinessId: barber.business_id,
+      });
+      throw new ForbiddenError();
+    }
 
     const ext  = MIME_TO_EXT[file.mimetype];
     const path = `barbers/${barberId}.${ext}`;
@@ -57,6 +63,7 @@ export const uploadController = {
     }
 
     const { data: urlData } = supabase.storage.from("photos").getPublicUrl(path);
+    logger.info("Foto de barbero subida", { businessId: req.businessId, barberId, path });
     res.json({ url: urlData.publicUrl });
   },
 
@@ -68,7 +75,12 @@ export const uploadController = {
     // SEC: verificar ownership antes de eliminar
     const barber = await barberRepository.findById(barberId);
     if (!barber)                                   throw new NotFoundError("Profesional");
-    if (barber.business_id !== req.businessId!)    throw new ForbiddenError();
+    if (barber.business_id !== req.businessId!) {
+      logger.warn("IDOR bloqueado: intento de eliminar foto de barbero ajeno", {
+        businessId: req.businessId, barberId, ownerBusinessId: barber.business_id,
+      });
+      throw new ForbiddenError();
+    }
 
     const paths = Object.values(MIME_TO_EXT).map((ext) => `barbers/${barberId}.${ext}`);
     const { error } = await supabase.storage.from("photos").remove(paths);
@@ -78,6 +90,7 @@ export const uploadController = {
       return;
     }
 
+    logger.info("Foto de barbero eliminada", { businessId: req.businessId, barberId });
     res.json({ message: "Imagen eliminada" });
   },
 
@@ -94,7 +107,12 @@ export const uploadController = {
     }
 
     // SEC-1: el businessId del path debe coincidir con el del token
-    if (businessId !== req.businessId!) throw new ForbiddenError();
+    if (businessId !== req.businessId!) {
+      logger.warn("IDOR bloqueado: intento de subir asset de negocio ajeno", {
+        businessId: req.businessId, targetBusinessId: businessId, type,
+      });
+      throw new ForbiddenError();
+    }
 
     // SEC-2: whitelist de tipos de asset — previene path traversal en Storage
     if (!isAllowedAssetType(type)) {
@@ -116,6 +134,7 @@ export const uploadController = {
     }
 
     const { data: urlData } = supabase.storage.from("photos").getPublicUrl(path);
+    logger.info("Asset de negocio subido", { businessId: req.businessId, type, path });
     res.json({ url: urlData.publicUrl });
   },
 
@@ -126,7 +145,12 @@ export const uploadController = {
     const type       = req.params["type"]       as string;
 
     // SEC-1: el businessId del path debe coincidir con el del token
-    if (businessId !== req.businessId!) throw new ForbiddenError();
+    if (businessId !== req.businessId!) {
+      logger.warn("IDOR bloqueado: intento de eliminar asset de negocio ajeno", {
+        businessId: req.businessId, targetBusinessId: businessId, type,
+      });
+      throw new ForbiddenError();
+    }
 
     // SEC-2: whitelist de tipos de asset
     if (!isAllowedAssetType(type)) {
@@ -145,6 +169,7 @@ export const uploadController = {
       return;
     }
 
+    logger.info("Asset de negocio eliminado", { businessId: req.businessId, type });
     res.json({ message: "Imagen eliminada" });
   },
 };

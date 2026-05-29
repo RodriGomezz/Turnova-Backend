@@ -2,6 +2,7 @@ import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
 import { Booking } from "../../domain/entities/Booking";
 import { AppError, NotFoundError } from "../../domain/errors";
 import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
+import { logger } from "../../infrastructure/logger";
 
 export interface CancelBookingInput {
   bookingId:  string;
@@ -28,8 +29,13 @@ export class CancelBookingUseCase {
       cancel_reason: input.reason ?? null,
     });
 
-    // Invalidar cache de slots — el slot queda libre
     invalidateSlotsCache(input.businessId);
+
+    logger.info("Reserva cancelada", {
+      bookingId:  input.bookingId,
+      businessId: input.businessId,
+      reason:     input.reason ?? null,
+    });
 
     return updated;
   }

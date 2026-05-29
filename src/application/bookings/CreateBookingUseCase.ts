@@ -6,6 +6,7 @@ import {
   GetAvailableSlotsInput,
 } from "./GetAvailableSlotsUseCase";
 import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
+import { logger } from "../../infrastructure/logger";
 
 export interface CreateBookingInput {
   business_id: string;
@@ -44,6 +45,12 @@ export class CreateBookingUseCase {
     );
 
     if (!slotDisponible) {
+      logger.warn("Slot no disponible al crear reserva", {
+        businessId: input.business_id,
+        barberId: input.barber_id,
+        fecha: input.fecha,
+        horaInicio: input.hora_inicio,
+      });
       throw new ConflictError(
         `El horario ${input.hora_inicio} del ${input.fecha} ya no está disponible`,
       );
@@ -60,6 +67,15 @@ export class CreateBookingUseCase {
       hora_inicio: input.hora_inicio,
       hora_fin: input.hora_fin,
       estado: input.auto_confirmar ? "confirmada" : "pendiente",
+    });
+
+    logger.info("Reserva creada", {
+      bookingId:  booking.id,
+      businessId: input.business_id,
+      barberId:   input.barber_id,
+      fecha:      input.fecha,
+      horaInicio: input.hora_inicio,
+      estado:     booking.estado,
     });
 
     // Invalidar cache de slots para que el próximo request refleje

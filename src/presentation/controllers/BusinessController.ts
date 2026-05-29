@@ -9,6 +9,7 @@ import { UpdateBusinessInput } from "../schemas/business.schema";
 import { invalidateUserCache } from "../middlewares/auth.middleware";
 import { invalidateByBusinessId } from "../../infrastructure/cache/public.cache";
 import { updateBusinessNetwork, findNetworkBusinessIds } from "../../infrastructure/database/business-network";
+import { logger } from "../../infrastructure/logger";
 
 
 export class BusinessController {
@@ -34,6 +35,7 @@ export class BusinessController {
       const input = req.body as UpdateBusinessInput;
       const business = await this.businessRepository.update(req.businessId!, input);
       invalidateByBusinessId(req.businessId!);
+      logger.info("Negocio actualizado", { businessId: req.businessId });
       res.json({ business });
     } catch (error) {
       next(error);
@@ -69,6 +71,7 @@ export class BusinessController {
   completeOnboarding = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       await this.businessRepository.update(req.businessId!, { onboarding_completed: true });
+      logger.info("Onboarding completado", { businessId: req.businessId });
       res.json({ message: "Onboarding completado" });
     } catch (error) {
       next(error);
@@ -91,7 +94,7 @@ export class BusinessController {
 
       await this.userRepository.update(userId, { business_id });
       invalidateUserCache(userId);
-
+      logger.info("Cambio de negocio activo", { userId, fromBusinessId: req.businessId, toBusinessId: business_id });
       res.json({ message: "Negocio activo actualizado" });
     } catch (error) {
       next(error);

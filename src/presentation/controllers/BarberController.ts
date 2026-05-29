@@ -12,6 +12,7 @@ import {
 import { getPlanLimits } from "../../domain/plan-limits";
 import { CreateBarberInput, UpdateBarberInput } from "../schemas/barber.schema";
 import { BookingRepository } from "../../infrastructure/database/BookingRepository";
+import { logger } from "../../infrastructure/logger";
 
 export class BarberController {
   private readonly barberRepository: BarberRepository;
@@ -60,6 +61,12 @@ export class BarberController {
       );
 
       if (count >= limits.maxBarberos) {
+        logger.warn("Límite de profesionales alcanzado", {
+          businessId: req.businessId,
+          plan: business.plan,
+          count,
+          max: limits.maxBarberos,
+        });
         throw new AppError(
           `Tu plan ${business.plan} permite hasta ${limits.maxBarberos} ${limits.maxBarberos === 1 ? "profesional" : "profesionales"}. Actualizá tu plan para agregar más.`,
           403,
@@ -70,6 +77,7 @@ export class BarberController {
         ...input,
         business_id: req.businessId!,
       });
+      logger.info("Profesional creado", { businessId: req.businessId, barberId: barber.id });
       res.status(201).json({ barber });
     } catch (error) {
       next(error);
@@ -109,6 +117,7 @@ delete = async (req: Request, res: Response, next: NextFunction): Promise<void> 
     const hardDelete = String(req.query['hard'] ?? '').toLowerCase() === 'true';
     if (hardDelete) {
       await this.barberRepository.hardDelete(id);
+      logger.info("Profesional eliminado permanentemente", { businessId: req.businessId, barberId: id });
       res.json({ message: 'Profesional eliminado correctamente' });
       return;
     }
@@ -119,6 +128,7 @@ delete = async (req: Request, res: Response, next: NextFunction): Promise<void> 
       return;
     }
     await this.barberRepository.deactivate(id);
+    logger.info("Profesional desactivado", { businessId: req.businessId, barberId: id });
     res.json({ message: 'Profesional desactivado correctamente' });
   } catch (error) {
     next(error);

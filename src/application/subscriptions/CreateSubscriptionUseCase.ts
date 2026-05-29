@@ -4,6 +4,7 @@ import { IPaymentProvider } from "../ports/IPaymentProvider";
 import { SubscriptionPlan, BillingCycle } from "../../domain/entities/Subscription";
 import { AppError, ConflictError } from "../../domain/errors";
 import { getPlanPrice, getPlanName, TRIAL_DAYS } from "../../domain/plan-prices";
+import { logger } from "../../infrastructure/logger";
 
 export interface CreateSubscriptionInput {
   businessId: string;
@@ -58,6 +59,10 @@ export class CreateSubscriptionUseCase {
       await this.subscriptionRepository.updateStatus(pending.id, "canceled", {
         canceled_at: new Date().toISOString(),
       });
+      logger.info("Checkout pendiente anterior cancelado al crear nueva suscripción", {
+        businessId: input.businessId,
+        canceledSubscriptionId: pending.id,
+      });
     }
 
     const apiBase      = process.env.API_URL ?? "http://localhost:3000";
@@ -109,6 +114,14 @@ export class CreateSubscriptionUseCase {
     checkoutParams.set("external_id", newSubscription.id);
 
     const subscribeUrl = `${baseUrl}${separator}${checkoutParams.toString()}`;
+
+    logger.info("Suscripción creada — checkout iniciado", {
+      businessId:     input.businessId,
+      subscriptionId: newSubscription.id,
+      plan:           input.plan,
+      cycle,
+      trialDays,
+    });
 
     return {
       subscribeUrl,
