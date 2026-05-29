@@ -17,16 +17,6 @@ const upload = multer({
   },
 });
 
-/**
- * Wrapper que convierte errores de multer en respuestas JSON claras.
- *
- * Sin esto, los errores de multer (archivo demasiado grande, tipo inválido)
- * no llegan al errorHandler global de Express — quedan sin manejar y el
- * cliente recibe un timeout sin respuesta o un HTML de error sin formato.
- *
- * Multer llama al callback de next() con el error en lugar de lanzarlo,
- * por eso el manejo debe hacerse aquí y no en el errorHandler global.
- */
 function handleUpload(field: string) {
   return (req: Request, res: Response, next: NextFunction): void => {
     upload.single(field)(req, res, (err) => {
@@ -41,7 +31,6 @@ function handleUpload(field: string) {
         return;
       }
 
-      // Error del fileFilter (tipo de archivo no permitido) u otros
       res.status(400).json({
         error: (err as Error).message ?? "Archivo no válido",
       });
@@ -49,30 +38,40 @@ function handleUpload(field: string) {
   };
 }
 
-// Montado en /api/upload — sin prefijo /upload aquí
+function asyncHandler(
+  fn: (req: Request, res: Response) => Promise<void>,
+) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    fn(req, res).catch(next);
+  };
+}
+
 router.post(
   "/barber-photo/:barberId",
   authMiddleware,
   uploadLimiter,
   handleUpload("photo"),
-  uploadController.barberPhoto,
+  asyncHandler(uploadController.barberPhoto),
 );
+
 router.delete(
   "/barber-photo/:barberId",
   authMiddleware,
-  uploadController.deleteBarberPhoto,
+  asyncHandler(uploadController.deleteBarberPhoto),
 );
+
 router.post(
   "/business/:businessId/:type",
   authMiddleware,
   uploadLimiter,
   handleUpload("photo"),
-  uploadController.uploadBusinessAsset,
+  asyncHandler(uploadController.uploadBusinessAsset),
 );
+
 router.delete(
   "/business/:businessId/:type",
   authMiddleware,
-  uploadController.deleteBusinessAsset,
+  asyncHandler(uploadController.deleteBusinessAsset),
 );
 
 export default router;

@@ -20,9 +20,11 @@ export const validate =
       const result = schemas.body.safeParse(req.body);
       if (!result.success) {
         errors["body"] = result.error.flatten().fieldErrors;
+        // SEC: no loguear req.body — puede contener passwords u otros datos
+        // sensibles que el redact() del logger no alcanza a cubrir en este punto.
+        // Los fieldErrors son suficientes para debug sin exponer datos del cliente.
         logger.warn("Validation failed", {
-          path: req.path,
-          body: req.body,
+          path:   req.path,
           errors: errors["body"],
         });
       } else {

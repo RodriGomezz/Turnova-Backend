@@ -118,6 +118,23 @@ export class HandleWebhookUseCase {
     const subscription = await this.findSubscription(payload);
     if (!subscription) return;
 
+    // ── Guard de idempotency ─────────────────────────────────────────────────
+    // dLocal Go reintenta el webhook si no recibe 200 en tiempo.
+    // Si el execution_id ya está registrado en la BD, este evento ya fue
+    // procesado: salir sin ejecutar ninguna acción para evitar doble cobro,
+    // doble email y extensión duplicada del período de suscripción.
+    const incomingExecutionId = payload.order_id ?? payload.invoiceId;
+    if (
+      incomingExecutionId &&
+      subscription.dlocal_last_execution_id === incomingExecutionId
+    ) {
+      logger.info("Webhook duplicado ignorado — execution_id ya procesado", {
+        subscriptionId:  subscription.id,
+        executionId:     incomingExecutionId,
+      });
+      return;
+    }
+
     const now = new Date();
     const nextPeriodEnd = new Date(now);
 

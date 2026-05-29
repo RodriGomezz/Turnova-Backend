@@ -62,8 +62,22 @@ const logFormat = printf(
     `${timestamp} [${level}] ${stack ?? message}`,
 );
 
+const isProd = process.env.NODE_ENV === "production";
+
+// Formato de consola: JSON estructurado en producción (Datadog/Loki/CloudWatch),
+// texto coloreado en desarrollo para legibilidad humana.
+const consoleFormat = isProd
+  ? combine(timestamp(), errors({ stack: true }), sanitize(), format.json())
+  : combine(
+      colorize(),
+      timestamp({ format: "HH:mm:ss" }),
+      errors({ stack: true }),
+      sanitize(),
+      logFormat,
+    );
+
 export const logger = createLogger({
-  level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === "production" ? "warn" : "info"),
+  level: process.env.LOG_LEVEL ?? (isProd ? "warn" : "info"),
   format: combine(
     timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
     errors({ stack: true }),
@@ -71,25 +85,24 @@ export const logger = createLogger({
     logFormat,
   ),
   transports: [
-    new transports.Console({
-      format: combine(
-        colorize(),
-        timestamp({ format: "HH:mm:ss" }),
-        errors({ stack: true }),
-        sanitize(),
-        logFormat,
-      ),
-    }),
+    new transports.Console({ format: consoleFormat }),
     new transports.File({
       filename: path.join("logs", "app.log"),
       maxsize: 5 * 1024 * 1024,
       maxFiles: 5,
+      // El file transport siempre usa JSON en producción para ingesta limpia
+      format: isProd
+        ? combine(timestamp(), errors({ stack: true }), sanitize(), format.json())
+        : undefined,
     }),
     new transports.File({
       filename: path.join("logs", "error.log"),
       level: "error",
       maxsize: 5 * 1024 * 1024,
       maxFiles: 5,
+      format: isProd
+        ? combine(timestamp(), errors({ stack: true }), sanitize(), format.json())
+        : undefined,
     }),
   ],
 });

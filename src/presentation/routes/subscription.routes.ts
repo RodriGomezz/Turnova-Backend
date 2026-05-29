@@ -15,26 +15,18 @@ const router: Router = Router();
 //   app.use('/api/subscriptions/dlocal', express.raw({ type: 'application/json' }))
 router.post("/dlocal", webhookController.handleDLocal);
 
+router.get("/confirm-stream", subscriptionController.confirmStream);
+
 // ── Panel — protegidas con authMiddleware ─────────────────────────────────────
 router.use(authMiddleware);
 
 router.get("/",        subscriptionController.get);
 router.get("/history", subscriptionController.getHistory);
 
-/**
- * GET /api/subscriptions/confirm-stream
- *
- * Endpoint SSE — el frontend se conecta tras volver del checkout de dLocal Go.
- * Emite el evento `payment_confirmed` cuando el webhook de dLocal Go llega
- * y el pago es procesado, eliminando la latencia del polling.
- *
- * No registrar generalLimiter aquí — SSE es una conexión persistente,
- * no un request puntual. authMiddleware ya la protege.
- */
-router.get("/confirm-stream", subscriptionController.confirmStream);
+router.post("/sse-token", subscriptionController.issueSseToken);
 
-router.post("/create", validate(createSubscriptionSchema), subscriptionController.create);
+router.post("/create",    validate(createSubscriptionSchema), subscriptionController.create);
 router.post("/reconcile", subscriptionController.reconcile);
-router.post("/cancel", validate(cancelSubscriptionSchema), subscriptionController.cancel);
+router.post("/cancel",    validate(cancelSubscriptionSchema), subscriptionController.cancel);
 
 export default router;

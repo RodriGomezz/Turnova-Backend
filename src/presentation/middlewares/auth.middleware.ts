@@ -62,14 +62,11 @@ export const authMiddleware = async (
 ): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
-    const queryToken = req.query["token"] as string | undefined;
 
     let token: string | undefined;
 
     if (authHeader?.startsWith("Bearer ")) {
       token = authHeader.slice(7);
-    } else if (queryToken && req.path.endsWith("/confirm-stream")) {
-      token = queryToken;
     }
 
     if (!token) throw new UnauthorizedError();

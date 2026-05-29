@@ -8,6 +8,7 @@ import { AppError, NotFoundError }          from "../../domain/errors";
 import { CreateSubscriptionInput }          from "../schemas/subscription.schema";
 import { logger }                           from "../../infrastructure/logger";
 import { SseService }                       from "../../infrastructure/sse/sse.service";
+import { sseTokenStore }                    from "../../infrastructure/sse/sse-token.store";
 import { HandleWebhookUseCase }             from "../../application/subscriptions/HandleWebhookUseCase";
 
 export class SubscriptionController {
@@ -45,12 +46,30 @@ export class SubscriptionController {
   };
 
   /**
+   * POST /api/subscriptions/sse-token
+   *
+   * Emite un token efímero de un solo uso (TTL 60s) para autenticar el
+   * endpoint SSE sin exponer el JWT de sesión en la URL.
+   *
+   * El frontend debe llamar a este endpoint primero (con el JWT en el header
+   * normal), obtener el token y pasarlo como ?sse_token= al abrir el EventSource.
+   */
+  issueSseToken = (req: Request, res: Response): void => {
+    const token = sseTokenStore.issue(req.businessId!, req.userId!);
+    res.json({ token });
+  };
+
+  /**
    * GET /api/subscriptions/confirm-stream
    *
    * Endpoint SSE — el frontend se conecta tras redirigir desde el checkout
    * de dLocal Go. Mantiene una conexión HTTP persistente y envía el evento
    * `payment_confirmed` en el momento exacto en que el webhook de dLocal Go
    * llega y la DB se actualiza, eliminando la latencia del polling.
+   *
+   * Autenticación: token efímero de un solo uso vía ?sse_token=<uuid>.
+   * El token se obtiene llamando primero a POST /sse-token (con JWT en header).
+   * Esto evita exponer el JWT de sesión en logs de servidor e historial del browser.
    *
    * Arquitectura:
    *   Frontend ──── GET /confirm-stream ────► SSE connection abierta
@@ -66,7 +85,21 @@ export class SubscriptionController {
    * el webhook pueda notificar al nodo que tiene la conexión SSE.
    */
   confirmStream = (req: Request, res: Response): void => {
-    const businessId = req.businessId!;
+    // ── Autenticación por token efímero ───────────────────────────────────────
+    // Este endpoint NO pasa por authMiddleware — el token de la URL lo reemplaza.
+    const rawSseToken = req.query["sse_token"];
+    if (!rawSseToken || typeof rawSseToken !== "string") {
+      res.status(401).json({ error: "sse_token requerido" });
+      return;
+    }
+
+    const session = sseTokenStore.consume(rawSseToken);
+    if (!session) {
+      res.status(401).json({ error: "SSE token inválido o expirado" });
+      return;
+    }
+
+    const businessId = session.businessId;
 
     // Verificar si el pago ya fue confirmado antes de abrir la conexión.
     // Evita SSE innecesarias cuando el usuario recarga /configuracion

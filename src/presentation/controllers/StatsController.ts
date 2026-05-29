@@ -3,6 +3,27 @@ import { supabase } from "../../infrastructure/database/supabase.client";
 import { AppError } from "../../domain/errors";
 import { UserBusinessAccessRepository } from "../../infrastructure/database/UserBusinessAccessRepository";
 
+// Tipo local que refleja el shape del join bookings ⟶ services.
+// Supabase no puede inferir tipos en selects con string dinámico, así que
+// casteamos explícitamente en lugar de usar `as any`.
+interface BookingWithService {
+  id:                string;
+  estado:            string;
+  fecha:             string;
+  hora_inicio:       string;
+  barber_id:         string;
+  service_id:        string;
+  cliente_email:     string;
+  cliente_telefono:  string;
+  services:          { nombre: string; precio: number } | null;
+}
+
+interface PrevBookingWithService {
+  id:       string;
+  estado:   string;
+  services: { precio: number } | null;
+}
+
 export class StatsController {
   private readonly userBusinessAccess = new UserBusinessAccessRepository();
 
@@ -61,8 +82,8 @@ export class StatsController {
       if (currentRes.error) throw new AppError(currentRes.error.message, 500);
       if (prevRes.error) throw new AppError(prevRes.error.message, 500);
 
-      const bookings = currentRes.data ?? [];
-      const prevBookings = prevRes.data ?? [];
+      const bookings     = (currentRes.data ?? []) as unknown as BookingWithService[];
+      const prevBookings = (prevRes.data   ?? []) as unknown as PrevBookingWithService[];
 
       const activos = bookings.filter((b) => b.estado !== "cancelada");
 
@@ -76,11 +97,11 @@ export class StatsController {
 
       // ── Ingresos ───────────────────────────────────────────────────────────
       const ingresosMes = activos.reduce(
-        (sum, b) => sum + ((b.services as any)?.precio ?? 0),
+        (sum, b) => sum + (b.services?.precio ?? 0),
         0,
       );
       const ingresosPrev = prevBookings.reduce(
-        (sum, b) => sum + ((b.services as any)?.precio ?? 0),
+        (sum, b) => sum + (b.services?.precio ?? 0),
         0,
       );
       const ingresosVariacion =
@@ -109,7 +130,7 @@ export class StatsController {
       // ── Servicio más solicitado ────────────────────────────────────────────
       const porServicio: Record<string, { nombre: string; count: number }> = {};
       for (const b of activos) {
-        const nombre = (b.services as any)?.nombre ?? "Desconocido";
+        const nombre = b.services?.nombre ?? "Desconocido";
         if (!porServicio[b.service_id]) {
           porServicio[b.service_id] = { nombre, count: 0 };
         }

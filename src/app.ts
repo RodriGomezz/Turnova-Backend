@@ -2,7 +2,7 @@ import express, { Application } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
-import { authBurstLimiter, generalLimiter, healthLimiter, publicLimiter, refreshLimiter, uploadLimiter } from './presentation/middlewares/rateLimiter.middleware';
+import { authBurstLimiter, generalLimiter, healthLimiter, publicLimiter, refreshLimiter, resetLimiter, uploadLimiter } from './presentation/middlewares/rateLimiter.middleware';
 import { errorHandler } from './presentation/middlewares/errorHandler.middleware';
 import { requestLogger } from './presentation/middlewares/requestLogger.middleware';
 import authRoutes from './presentation/routes/auth.routes';
@@ -23,7 +23,14 @@ app.set("trust proxy", 1);
 app.use(compression());
 
 // ── Seguridad HTTP ────────────────────────────────────────────────────────────
-app.use(helmet());
+// Helmet con configuración explícita.
+// API pura sin HTML: CSP y crossOriginEmbedderPolicy no aplican y se desactivan
+// intencionalmente para evitar que headers innecesarios rompan respuestas JSON.
+// El resto de los 11 headers de seguridad (HSTS, X-Frame-Options, etc.) quedan activos.
+app.use(helmet({
+  contentSecurityPolicy:    false,
+  crossOriginEmbedderPolicy: false,
+}));
 
 const allowedOrigins = [process.env.FRONTEND_URL ?? "http://localhost:4200"];
 const baseDomain     = process.env.BASE_DOMAIN ?? "kronu.pro";
@@ -100,8 +107,8 @@ app.use('/api/services/defaults',   publicLimiter);      // ruta pública, separ
 
 app.use('/api/auth/login',          authBurstLimiter);
 app.use('/api/auth/register',       authBurstLimiter);
-app.use('/api/auth/request-reset',  authBurstLimiter);
-app.use('/api/auth/reset-password', authBurstLimiter);
+app.use('/api/auth/request-reset',  resetLimiter);
+app.use('/api/auth/reset-password', resetLimiter);
 app.use('/api/auth/refresh',        refreshLimiter);
 
 app.use('/api/upload',              uploadLimiter);      // nuevo — faltaba

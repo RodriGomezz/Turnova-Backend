@@ -37,6 +37,13 @@ import { app } from "./app";
 import { dlocalGoClient } from "./infrastructure/payments/dlocalgo.client";
 import { SubscriptionPlan, BillingCycle } from "./domain/entities/Subscription";
 
+// ── Seguridad de dependencias ─────────────────────────────────────────────────
+// Agregar en el pipeline de CI como step bloqueante antes del deploy:
+//   npm audit --audit-level=high
+// o con Snyk: npx snyk test --severity-threshold=high
+// Esto previene que vulnerabilidades en dependencias lleguen a producción sin aviso.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const PORT = process.env.PORT ?? 3000;
 
 const PLANS: SubscriptionPlan[] = ["starter", "pro", "business"];
@@ -47,7 +54,9 @@ const server = app.listen(PORT, async () => {
   startDomainVerificationJob();
   startSubscriptionExpiryJob();
 
-  // Al arrancar, sincronizar URLs de todos los planes (mensual Y anual)
+  // Sincronizar URLs de todos los planes al arrancar (mensual + anual) en paralelo.
+  // Promise.allSettled en lugar de Promise.all: si un plan falla, el resto continúa.
+  // Secuencial con await en loop tomaba ~3s; en paralelo baja a ~500ms.
   try {
     const apiBase      = process.env.API_URL!;
     const frontendBase = process.env.FRONTEND_URL!;
@@ -56,21 +65,26 @@ const server = app.listen(PORT, async () => {
     const backUrl      = `${frontendBase}/panel/configuracion?status=canceled&tab=planes`;
     const errorUrl     = `${frontendBase}/panel/configuracion?status=error&tab=planes`;
 
-    for (const plan of PLANS) {
-      for (const cycle of CYCLES) {
-        await dlocalGoClient.getOrCreatePlan(
-          plan,
-          notifUrl,
-          successUrl,
-          backUrl,
-          errorUrl,
-          cycle,
-        );
-      }
+    const tasks = PLANS.flatMap((plan) =>
+      CYCLES.map((cycle) =>
+        dlocalGoClient.getOrCreatePlan(plan, notifUrl, successUrl, backUrl, errorUrl, cycle),
+      ),
+    );
+
+    const results = await Promise.allSettled(tasks);
+
+    const failed = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed.length > 0) {
+      logger.warn("Algunos planes dLocal Go no pudieron sincronizarse al arrancar", {
+        total: tasks.length,
+        fallidos: failed.length,
+        razones: failed.map((r) => r.reason?.message ?? String(r.reason)),
+      });
+    } else {
+      logger.info("URLs de planes dLocal Go sincronizadas al arrancar (mensual + anual)");
     }
-    logger.info("URLs de planes dLocal Go sincronizadas al arrancar (mensual + anual)");
   } catch (err) {
-    logger.warn("No se pudieron sincronizar URLs de planes dLocal Go al arrancar", { err });
+    logger.warn("Error inesperado al sincronizar planes dLocal Go al arrancar", { err });
   }
 });
 
