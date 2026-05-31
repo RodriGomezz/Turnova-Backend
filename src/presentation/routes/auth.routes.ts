@@ -2,7 +2,7 @@ import { Router } from "express";
 import { AuthController } from "../controllers/AuthController";
 import { validate } from "../middlewares/validate.middleware";
 import { authMiddleware } from "../middlewares/auth.middleware";
-import { authLimiter, loginLimiter, refreshLimiter, resetLimiter } from "../middlewares/rateLimiter.middleware";
+import { loginLimiter, loginByEmailLimiter, registerLimiter, refreshLimiter, resetLimiter } from "../middlewares/rateLimiter.middleware";
 import { registerSchema, loginSchema } from "../schemas/auth.schema";
 
 const router: Router = Router();
@@ -10,11 +10,11 @@ const controller = new AuthController();
 
 router.post(
   "/register",
-  authLimiter,
+  registerLimiter,
   validate(registerSchema),
   controller.register,
 );
-router.post("/login", loginLimiter, validate(loginSchema), controller.login);
+router.post("/login", loginByEmailLimiter, loginLimiter, validate(loginSchema), controller.login);
 router.post("/refresh", refreshLimiter, controller.refresh);
 router.get("/me", authMiddleware, controller.me);
 router.put("/profile", authMiddleware, controller.updateProfile);

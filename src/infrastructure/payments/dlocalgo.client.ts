@@ -185,7 +185,6 @@ export const dlocalGoClient: IPaymentProvider = {
     if (existing) {
       logger.info("dLocal Go: plan existente encontrado, actualizando URLs", {
         planId: existing.id,
-        planToken: existing.plan_token,
         cycle,
       });
 
@@ -261,7 +260,6 @@ export const dlocalGoClient: IPaymentProvider = {
 
     logger.info("dLocal Go: plan creado", {
       planId: created.id,
-      planToken: created.plan_token,
       cycle,
     });
 
@@ -338,7 +336,7 @@ export const dlocalGoClient: IPaymentProvider = {
   ): Promise<SubscriptionDetails | null> {
     logger.info("dLocal Go: buscando suscripción reciente por plan/email", {
       planId,
-      email,
+      email: email.slice(0, 3) + "***",
     });
 
     const res = await fetch(

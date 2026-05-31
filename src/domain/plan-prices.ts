@@ -7,14 +7,14 @@ export const TRIAL_DAYS = 14;
 export const PLAN_PRICES_MONTHLY: Record<SubscriptionPlan, number> = {
   starter:  590,
   pro:     1390,
-  business: 2290,
+  business: 2990,
 };
 
 /** Precios anuales en UYU (equivale a ~10 cuotas mensuales) */
 export const PLAN_PRICES_ANNUAL: Record<SubscriptionPlan, number> = {
   starter:   5_880,   // $490/mes equivalente
   pro:      13_800,   // $1.150/mes equivalente
-  business: 13_800,   // oferta de lanzamiento
+  business: 29_880,   // oferta de lanzamiento
 };
 
 /** Para compatibilidad con el código existente que usa PLAN_PRICES */

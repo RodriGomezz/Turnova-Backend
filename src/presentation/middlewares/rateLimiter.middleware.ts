@@ -4,156 +4,167 @@ import rateLimit, {
   RateLimitExceededEventHandler,
   RateLimitRequestHandler,
 } from "express-rate-limit";
-import { Request } from "express";
+import { Request, Response, NextFunction } from "express";
 import { logger } from "../../infrastructure/logger";
 
 const isRateLimitDisabled = process.env.DISABLE_RATE_LIMIT === "true";
 
 if (isRateLimitDisabled) {
-  logger.warn(
-    "⚠️  Rate limiting DESACTIVADO — DISABLE_RATE_LIMIT=true. " +
-      "Nunca usar en producción ni staging.",
-  );
+  logger.warn("Rate limiting DESACTIVADO — nunca usar en producción.");
 }
 
-// ── keyGenerator IPv6-safe ────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function makeIpKeyGenerator(req: Request): string {
   return ipKeyGenerator(req.ip ?? "");
 }
 
-// ── Handler base ──────────────────────────────────────────────────────────────
-// Cada handler incluye un mensaje claro y accionable para el usuario.
-// También logea la IP, método y path para detección de abusos.
 function makeHandler(message: string): RateLimitExceededEventHandler {
   return (req, res, _next, options: Partial<Options>) => {
     logger.warn("Rate limit alcanzado", {
-      ip:      makeIpKeyGenerator(req),
-      method:  req.method,
-      path:    req.path,
-      max:     options.max,
-      windowS: options.windowMs ? options.windowMs / 1000 : undefined,
+      ip:     makeIpKeyGenerator(req),
+      method: req.method,
+      path:   req.path,
+      max:    options.max,
+      window: options.windowMs ? options.windowMs / 1000 : undefined,
     });
     res.status(429).json({ error: message });
   };
 }
 
-// ── Opciones base compartidas ─────────────────────────────────────────────────
 const baseOptions = {
-  standardHeaders: true,   // devuelve RateLimit-* headers al cliente
+  standardHeaders: true,
   legacyHeaders:   false,
   skip:            () => isRateLimitDisabled,
   keyGenerator:    makeIpKeyGenerator,
 } satisfies Partial<Options>;
 
-// ── generalLimiter — panel autenticado ───────────────────────────────────────
-// 500 req / 15 min: un negocio con polling intensivo hace ~40-60 req en ese
-// período. Margen de 8x — el usuario legítimo nunca lo alcanza.
-export const generalLimiter: RateLimitRequestHandler = rateLimit({
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+// Límite por IP: 30 req / 15 min — cubre 3 empleados en la misma red WiFi
+export const loginLimiter: RateLimitRequestHandler = rateLimit({
   ...baseOptions,
   windowMs: 15 * 60 * 1000,
-  max:      500,
+  max:      30,
   handler:  makeHandler(
-    "Demasiadas solicitudes. Esperá unos minutos antes de continuar.",
+    "Demasiados intentos desde esta red. Esperá 15 minutos.",
   ),
 });
 
-// ── authLimiter — login / register ───────────────────────────────────────────
-// 10 req / 15 min: alineado con Node.js Best Practices. Un humano olvidadizo
-// no supera 5 intentos de login.
-export const authLimiter: RateLimitRequestHandler = rateLimit({
+// Límite por email: 5 intentos / 15 min — bloquea fuerza bruta a una cuenta
+// sin afectar a otros empleados en la misma red.
+const loginAttemptsByEmail = new Map<string, { count: number; resetAt: number }>();
+const EMAIL_WINDOW_MS = 15 * 60 * 1000;
+const EMAIL_MAX       = 5;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of loginAttemptsByEmail) {
+    if (entry.resetAt <= now) loginAttemptsByEmail.delete(key);
+  }
+}, EMAIL_WINDOW_MS).unref();
+
+export function loginByEmailLimiter(req: Request, res: Response, next: NextFunction): void {
+  if (isRateLimitDisabled) { next(); return; }
+
+  const email = (req.body?.email as string | undefined)?.toLowerCase().trim();
+  if (!email) { next(); return; }
+
+  const now   = Date.now();
+  const entry = loginAttemptsByEmail.get(email);
+
+  if (entry && entry.resetAt > now) {
+    if (entry.count >= EMAIL_MAX) {
+      const waitMins = Math.ceil((entry.resetAt - now) / 60_000);
+      logger.warn("Rate limit por email en login", {
+        email: email.slice(0, 3) + "***",
+        count: entry.count,
+        waitMins,
+      });
+      res.status(429).json({
+        error: `Demasiados intentos para esta cuenta. Esperá ${waitMins} minuto${waitMins !== 1 ? "s" : ""}.`,
+      });
+      return;
+    }
+    entry.count++;
+  } else {
+    loginAttemptsByEmail.set(email, { count: 1, resetAt: now + EMAIL_WINDOW_MS });
+  }
+
+  next();
+}
+
+// skipFailedRequests: intentos con 4xx (email ya existe, validación) no cuentan
+export const registerLimiter: RateLimitRequestHandler = rateLimit({
   ...baseOptions,
-  windowMs: 15 * 60 * 1000,
-  max:      10,
-  handler:  makeHandler(
-    "Demasiados intentos. Esperá 15 minutos antes de volver a intentarlo.",
-  ),
+  windowMs:           15 * 60 * 1000,
+  max:                20,
+  skipFailedRequests: true,
+  handler:            makeHandler("Demasiados intentos de registro. Esperá 15 minutos."),
 });
 
-// ── refreshLimiter — POST /auth/refresh ──────────────────────────────────────
-// Con tokens de 5 min de expiración (nuevo sistema asimétrico de Supabase),
-// un usuario activo durante 8 horas hace ~96 refreshes automáticos.
-// 200 req / 15 min por IP cubre hasta ~10 usuarios simultáneos en la misma
-// red sin bloquearlos, mientras sigue bloqueando floods automatizados.
+export const authBurstLimiter: RateLimitRequestHandler = loginLimiter;
+
 export const refreshLimiter: RateLimitRequestHandler = rateLimit({
   ...baseOptions,
   windowMs: 15 * 60 * 1000,
-  max:      200,
+  max:      300,
+  handler:  makeHandler("Demasiadas renovaciones de sesión. Esperá unos minutos."),
+});
+
+export const resetLimiter: RateLimitRequestHandler = rateLimit({
+  ...baseOptions,
+  windowMs: 15 * 60 * 1000,
+  max:      5,
   handler:  makeHandler(
-    "Demasiadas renovaciones de sesión. Esperá unos minutos.",
+    "Demasiados intentos de recuperación. Esperá 15 minutos y revisá tu carpeta de spam.",
   ),
 });
 
-// ── healthLimiter — GET /health ───────────────────────────────────────────────
-// UptimeRobot pinea cada 5 min = 12 req/hora = 288 req/día.
-// 60 req / 5 min es más que suficiente para el monitor + buffer de reintentos.
+// ── Panel ─────────────────────────────────────────────────────────────────────
+
+export const generalLimiter: RateLimitRequestHandler = rateLimit({
+  ...baseOptions,
+  windowMs: 15 * 60 * 1000,
+  max:      1000,
+  handler:  makeHandler("Demasiadas solicitudes. Esperá unos minutos."),
+});
+
+export const uploadLimiter: RateLimitRequestHandler = rateLimit({
+  ...baseOptions,
+  windowMs: 10 * 60 * 1000,
+  max:      20,
+  handler:  makeHandler("Límite de subidas alcanzado. Podés subir hasta 20 imágenes cada 10 minutos."),
+});
+
+// ── Público ───────────────────────────────────────────────────────────────────
+
+export const slotLimiter: RateLimitRequestHandler = rateLimit({
+  ...baseOptions,
+  windowMs: 2 * 60 * 1000,
+  max:      60,
+  handler:  makeHandler("Demasiadas consultas de disponibilidad. Esperá unos segundos."),
+});
+
+export const bookingLimiter: RateLimitRequestHandler = rateLimit({
+  ...baseOptions,
+  windowMs: 10 * 60 * 1000,
+  max:      20,
+  handler:  makeHandler("Demasiadas reservas en poco tiempo. Esperá unos minutos."),
+});
+
+export const publicLimiter: RateLimitRequestHandler = rateLimit({
+  ...baseOptions,
+  windowMs: 1 * 60 * 1000,
+  max:      200,
+  handler:  makeHandler("Demasiadas solicitudes. Esperá un momento."),
+});
+
+// ── Infraestructura ───────────────────────────────────────────────────────────
+
 export const healthLimiter: RateLimitRequestHandler = rateLimit({
   ...baseOptions,
   windowMs: 5 * 60 * 1000,
   max:      60,
   handler:  makeHandler("Demasiadas solicitudes al health check."),
 });
-
-// ── resetLimiter — request-reset y reset-password ────────────────────────────
-// 5 req / 15 min: estándar de la industria para envío de emails de reset
-// (Postman, Cloudflare: 3-5 req / 15 min). Más restrictivo que authLimiter
-// porque dispara envío de email real y el token es sensible.
-export const resetLimiter: RateLimitRequestHandler = rateLimit({
-  ...baseOptions,
-  windowMs: 15 * 60 * 1000,
-  max:      5,
-  handler:  makeHandler(
-    "Demasiados intentos de recuperación de contraseña. " +
-    "Esperá 15 minutos. Revisá también tu carpeta de spam.",
-  ),
-});
-
-// ── uploadLimiter — POST /api/upload/* ───────────────────────────────────────
-// 20 req / 10 min: cada upload llama a Vercel/S3 con costo real de red y
-// almacenamiento. Un usuario que sube fotos de perfil/negocio raramente
-// supera 5-8 uploads en una sesión de configuración.
-export const uploadLimiter: RateLimitRequestHandler = rateLimit({
-  ...baseOptions,
-  windowMs: 10 * 60 * 1000,
-  max:      20,
-  handler:  makeHandler(
-    "Límite de subidas alcanzado. Podés subir hasta 20 imágenes cada 10 minutos.",
-  ),
-});
-
-// ── slotLimiter — GET /slots y /available-days-with-slots ───────────────────
-// 60 req / 2 min: usuario real hace ~15-25 consultas explorando el calendario.
-// Un scraper lo alcanza en segundos y queda bloqueado solo 2 minutos.
-export const slotLimiter: RateLimitRequestHandler = rateLimit({
-  ...baseOptions,
-  windowMs: 2 * 60 * 1000,
-  max:      60,
-  handler:  makeHandler(
-    "Demasiadas consultas de disponibilidad. Esperá unos segundos.",
-  ),
-});
-
-// ── bookingLimiter — POST /public/:slug (crear reserva) ──────────────────────
-// 10 req / 10 min: cubre grupos (varias reservas seguidas). Ventana corta de
-// 10 min (no 60 min) para no bloquear al usuario por una hora entera.
-export const bookingLimiter: RateLimitRequestHandler = rateLimit({
-  ...baseOptions,
-  windowMs: 10 * 60 * 1000,
-  max:      10,
-  handler:  makeHandler(
-    "Demasiadas reservas en poco tiempo. Esperá unos minutos para continuar.",
-  ),
-});
-
-// ── publicLimiter — GET /public/:slug y /slug-check ─────────────────────────
-// 120 req / 1 min: la caché en memoria absorbe el 90% de estos requests.
-// El límite es solo contra floods — un usuario real nunca supera 10 req/min.
-export const publicLimiter: RateLimitRequestHandler = rateLimit({
-  ...baseOptions,
-  windowMs: 1 * 60 * 1000,
-  max:      120,
-  handler:  makeHandler("Demasiadas solicitudes. Esperá un momento."),
-});
-
-// ── Aliases de compatibilidad con imports del agente de frontend ──────────────
-export { authLimiter as authBurstLimiter };
-export { authLimiter as loginLimiter };

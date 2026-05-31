@@ -53,7 +53,24 @@ export class AuthController {
           email_confirm: true,
         });
 
-      if (authError) throw new AppError(authError.message, 400);
+      if (authError) {
+        // Supabase devuelve "User already registered" o "Email already in use"
+        // para emails duplicados. Detectarlo y dar un mensaje claro para que
+        // el usuario vaya a login en lugar de reintentar el registro.
+        const msg = authError.message.toLowerCase();
+        if (
+          msg.includes("already registered") ||
+          msg.includes("already in use") ||
+          msg.includes("already exists") ||
+          authError.code === "email_exists"
+        ) {
+          throw new AppError(
+            "Este email ya tiene una cuenta. Iniciá sesión o usá otro email.",
+            409,
+          );
+        }
+        throw new AppError(authError.message, 400);
+      }
       if (!authData.user) throw new AppError("Error al crear usuario", 500);
 
       try {
@@ -179,7 +196,23 @@ export class AuthController {
       const { data, error } = await authClient.auth.refreshSession({
         refresh_token,
       });
-      if (error || !data.session) throw new AppError("Sesión inválida", 401);
+
+      if (error || !data.session) {
+        // Distinguir entre token expirado (sesión vencida, el usuario debe
+        // re-loguear) y error genérico (problema transitorio, se puede reintentar).
+        // El frontend usa este código para decidir si redirige al login o reintenta.
+        const msg   = error?.message?.toLowerCase() ?? "";
+        const isExpired =
+          msg.includes("expired") ||
+          msg.includes("invalid refresh token") ||
+          msg.includes("already used") ||
+          msg.includes("not found");
+
+        throw new AppError(
+          isExpired ? "Sesión expirada. Iniciá sesión nuevamente." : "Error al renovar sesión.",
+          isExpired ? 401 : 503,
+        );
+      }
 
       // Registrar acceso también en refresh: el usuario mantiene la sesión
       // sin hacer login explícito, pero sigue siendo un acceso real al panel.

@@ -10,6 +10,14 @@ import { logger }                           from "../../infrastructure/logger";
 import { SseService }                       from "../../infrastructure/sse/sse.service";
 import { sseTokenStore }                    from "../../infrastructure/sse/sse-token.store";
 import { HandleWebhookUseCase }             from "../../application/subscriptions/HandleWebhookUseCase";
+import {
+  PLAN_PRICES_MONTHLY,
+  PLAN_PRICES_ANNUAL,
+  TRIAL_DAYS,
+  annualSavings,
+} from "../../domain/plan-prices";
+import { PLAN_LIMITS } from "../../domain/plan-limits";
+import { SubscriptionPlan } from "../../domain/entities/Subscription";
 
 export class SubscriptionController {
   constructor(
@@ -43,6 +51,56 @@ export class SubscriptionController {
     } catch (error) {
       next(error);
     }
+  };
+
+  /**
+   * GET /api/subscriptions/plans
+   *
+   * Endpoint público — devuelve precios, ahorros, trial y límites de todos
+   * los planes. Fuente única de verdad: el frontend no necesita hardcodear
+   * ningún valor de pricing ni de features.
+   *
+   * Sin auth — es información pública de la página de precios.
+   * Sin caché HTTP explícita — los valores cambian raramente y el bundle
+   * del frontend no debe quedar desactualizado silenciosamente.
+   */
+  getPlans = (_req: Request, res: Response): void => {
+    const PLANS: SubscriptionPlan[] = ["starter", "pro", "business"];
+
+    const plans = PLANS.map((id) => {
+      const monthly        = PLAN_PRICES_MONTHLY[id];
+      const annual         = PLAN_PRICES_ANNUAL[id];
+      const savings        = annualSavings(id);
+      // Precio mensual equivalente al pagar anual — útil para el badge "X/mes"
+      const monthlyEquivalentAnnual = Math.round(annual / 12);
+      const limits         = PLAN_LIMITS[id];
+
+      return {
+        id,
+        pricing: {
+          monthly,
+          annual,
+          monthlyEquivalentAnnual,
+          annualSavings: savings,
+          // Porcentaje de ahorro redondeado — útil para el badge "Ahorrá X%"
+          annualSavingsPercent: Math.round((savings / (monthly * 12)) * 100),
+          currency: "UYU",
+        },
+        limits: {
+          maxBarberos:    limits.maxBarberos === Infinity ? null : limits.maxBarberos,
+          recordatorios:  limits.recordatorios,
+          estadisticas:   limits.estadisticas,
+          multiSucursal:  limits.multiSucursal,
+          customDomain:   limits.customDomain,
+        },
+      };
+    });
+
+    res.json({
+      currency:  "UYU",
+      trialDays: TRIAL_DAYS,
+      plans,
+    });
   };
 
   /**
@@ -144,7 +202,7 @@ export class SubscriptionController {
    */
   create = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { plan, email } = req.body as CreateSubscriptionInput;
+      const { plan, email, billingCycle } = req.body as CreateSubscriptionInput;
 
       const user = await this.userRepository.findById(req.userId!);
       if (!user) throw new NotFoundError("Usuario");
@@ -156,11 +214,13 @@ export class SubscriptionController {
         businessId: req.businessId!,
         plan,
         email,
+        billingCycle,
       });
 
       logger.info("Checkout dLocal Go iniciado", {
         businessId:     req.businessId,
         plan,
+        billingCycle,
         subscriptionId: result.subscriptionId,
       });
 
