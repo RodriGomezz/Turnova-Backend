@@ -14,6 +14,19 @@ import {
 import { invalidateUserCache } from "../middlewares/auth.middleware";
 import { logger } from "../../infrastructure/logger";
 
+// ── Configuración de la cookie del refresh token ──────────────────────────────
+// HttpOnly: invisible para JS — XSS no puede leerla
+// Secure:   solo HTTPS
+// SameSite: Strict — no se envía en requests cross-site (anti-CSRF)
+// Path:     solo se adjunta al endpoint de refresh — no viaja en cada request
+const REFRESH_COOKIE_OPTIONS = {
+  httpOnly:  true,
+  secure:    true,
+  sameSite:  "strict" as const,
+  path:      "/api/auth/refresh",
+  maxAge:    7 * 24 * 60 * 60 * 1000, // 7 días en ms
+};
+
 export class AuthController {
   private readonly createBusinessUseCase: CreateBusinessUseCase;
   private readonly userRepository: UserRepository;
@@ -45,7 +58,6 @@ export class AuthController {
         termino_reserva,
       } = req.body as RegisterInput;
 
-      // Crear usuario en Supabase Auth
       const { data: authData, error: authError } =
         await supabase.auth.admin.createUser({
           email,
@@ -54,9 +66,6 @@ export class AuthController {
         });
 
       if (authError) {
-        // Supabase devuelve "User already registered" o "Email already in use"
-        // para emails duplicados. Detectarlo y dar un mensaje claro para que
-        // el usuario vaya a login en lugar de reintentar el registro.
         const msg = authError.message.toLowerCase();
         if (
           msg.includes("already registered") ||
@@ -129,18 +138,19 @@ export class AuthController {
       });
       if (error) throw new AppError("Credenciales inválidas", 401);
 
-      // Registrar último acceso en login — un write puntual es suficiente.
-      // Fire-and-forget: no bloquea la respuesta ni falla el login si la BD tarda.
       this.userRepository
         .updateLastSeen(data.user!.id, new Date().toISOString())
         .catch((err) => logger.error("Error actualizando last_seen_at en login", { err }));
 
+      // Refresh token en HttpOnly cookie — no viaja en el body ni en localStorage.
+      // El browser lo adjunta automáticamente a /api/auth/refresh gracias al Path.
+      res.cookie("refresh_token", data.session.refresh_token, REFRESH_COOKIE_OPTIONS);
+
       res.json({
-        token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
+        token:      data.session.access_token,
         expires_at: data.session.expires_at,
         user: {
-          id: data.user.id,
+          id:    data.user.id,
           email: data.user.email,
         },
       });
@@ -189,8 +199,11 @@ export class AuthController {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const { refresh_token } = req.body;
-      if (!refresh_token) throw new AppError("Refresh token requerido", 400);
+      // Leer el refresh token de la HttpOnly cookie — nunca del body.
+      // El browser lo adjunta automáticamente gracias al Path=/api/auth/refresh.
+      const refresh_token = req.cookies?.refresh_token;
+      if (!refresh_token) throw new AppError("Refresh token requerido", 401);
+
       const authClient = createSupabaseAuthClient();
 
       const { data, error } = await authClient.auth.refreshSession({
@@ -198,33 +211,42 @@ export class AuthController {
       });
 
       if (error || !data.session) {
-        // Distinguir entre token expirado (sesión vencida, el usuario debe
-        // re-loguear) y error genérico (problema transitorio, se puede reintentar).
-        // El frontend usa este código para decidir si redirige al login o reintenta.
-        const msg   = error?.message?.toLowerCase() ?? "";
+        const msg       = error?.message?.toLowerCase() ?? "";
+        const isTimeout = msg.includes("aborted") || msg.includes("abort");
         const isExpired =
-          msg.includes("expired") ||
-          msg.includes("invalid refresh token") ||
-          msg.includes("already used") ||
-          msg.includes("not found");
+          !isTimeout && (
+            msg.includes("expired") ||
+            msg.includes("invalid refresh token") ||
+            msg.includes("already used") ||
+            msg.includes("not found")
+          );
 
+        if (isTimeout) {
+          res.set("Retry-After", "3");
+          throw new AppError("Servicio temporalmente no disponible. Reintentá en unos segundos.", 503);
+        }
+
+        // Token expirado — limpiar la cookie para no dejar un token inválido
+        res.clearCookie("refresh_token", { path: "/api/auth/refresh" });
         throw new AppError(
-          isExpired ? "Sesión expirada. Iniciá sesión nuevamente." : "Error al renovar sesión.",
+          isExpired
+            ? "Sesión expirada. Iniciá sesión nuevamente."
+            : "Error al renovar sesión.",
           isExpired ? 401 : 503,
         );
       }
 
-      // Registrar acceso también en refresh: el usuario mantiene la sesión
-      // sin hacer login explícito, pero sigue siendo un acceso real al panel.
-      // data.session.user.id está garantizado — ya verificamos !data.session arriba.
       this.userRepository
         .updateLastSeen(data.session.user.id, new Date().toISOString())
         .catch((err) => logger.error("Error actualizando last_seen_at en refresh", { err }));
 
+      // Rotar la cookie con el nuevo refresh token
+      res.cookie("refresh_token", data.session.refresh_token, REFRESH_COOKIE_OPTIONS);
+
       res.json({
-        token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
+        token:      data.session.access_token,
         expires_at: data.session.expires_at,
+        // refresh_token ya NO va en el body — viaja en la cookie
       });
     } catch (error) {
       next(error);
@@ -257,8 +279,6 @@ export class AuthController {
       }
 
       await this.userRepository.update(userId, { nombre: nombre.trim() });
-
-      // Invalidar cache para que el próximo request cargue datos frescos
       invalidateUserCache(userId);
 
       res.json({ message: "Perfil actualizado correctamente" });
@@ -274,16 +294,13 @@ export class AuthController {
   ): Promise<void> => {
     try {
       const { email } = req.body as { email: string };
-
       if (!email) throw new AppError("El email es requerido", 400);
 
-      // Supabase envía el email automáticamente
       const authClient = createSupabaseAuthClient();
       const { error } = await authClient.auth.resetPasswordForEmail(email, {
         redirectTo: `${process.env.FRONTEND_URL}/reset-password`,
       });
 
-      // Siempre responder igual — no revelar si el email existe
       if (error)
         logger.warn("Error en resetPasswordForEmail", { error: error.message });
 
@@ -316,7 +333,6 @@ export class AuthController {
         );
       }
 
-      // Verificar el token y actualizar la contraseña
       const {
         data: { user },
         error: verifyError,
@@ -349,7 +365,6 @@ export class AuthController {
       const user = await this.userRepository.findById(userId);
       if (!user) throw new NotFoundError("Usuario");
 
-      // Buscar el negocio con plan Business entre todos los del usuario
       const { data: userBusinesses, error } = await supabase
         .from("user_businesses")
         .select(
@@ -383,7 +398,6 @@ export class AuthController {
         termino_servicio: businessBusiness.termino_servicio,
         termino_reserva: businessBusiness.termino_reserva,
         existingUser: true,
-        // Heredar plan Business y sin trial
         plan: "business",
         trial_ends_at: null,
       });

@@ -384,8 +384,28 @@ export class HandleWebhookUseCase {
   }
 
   private fireAndForget(fn: () => Promise<void>): void {
-    fn().catch((err) =>
-      logger.error("Error enviando email de suscripción", { err }),
-    );
+    const withRetry = async () => {
+      const delays = [1_000, 2_000];
+      for (let attempt = 0; attempt <= delays.length; attempt++) {
+        try {
+          await fn();
+          return;
+        } catch (err) {
+          if (attempt < delays.length) {
+            logger.warn("Email fallido, reintentando", {
+              attempt: attempt + 1,
+              retryInMs: delays[attempt],
+              err: err instanceof Error ? err.message : err,
+            });
+            await new Promise((r) => setTimeout(r, delays[attempt]));
+          } else {
+            logger.error("Email fallido después de todos los reintentos", {
+              err: err instanceof Error ? err.message : err,
+            });
+          }
+        }
+      }
+    };
+    withRetry();
   }
 }

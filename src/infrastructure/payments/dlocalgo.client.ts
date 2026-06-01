@@ -75,8 +75,17 @@ interface DLocalGoPagedResponse<T> {
 
 // ── Configuración ─────────────────────────────────────────────────────────────
 
-const COUNTRY = "UY";
+const COUNTRY  = "UY";
 const CURRENCY = "UYU";
+const DLOCAL_TIMEOUT_MS = 10_000;
+
+function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DLOCAL_TIMEOUT_MS);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(timer),
+  );
+}
 
 /** Parámetros de frecuencia según ciclo de facturación */
 const FREQUENCY_PARAMS: Record<BillingCycle, { type: string; value: number }> = {
@@ -161,7 +170,7 @@ export const dlocalGoClient: IPaymentProvider = {
 
     logger.info("dLocal Go: buscando planes existentes", { plan, cycle });
 
-    const listRes = await fetch(
+    const listRes = await fetchWithTimeout(
       `${base}/v1/subscription/plan/all?page=1&page_size=50`,
       { headers: { Authorization: auth, "Content-Type": "application/json" } },
     );
@@ -195,7 +204,7 @@ export const dlocalGoClient: IPaymentProvider = {
         error_url:        errorUrl,
       });
 
-      const patchRes = await fetch(`${base}/v1/subscription/plan/${existing.id}`, {
+      const patchRes = await fetchWithTimeout(`${base}/v1/subscription/plan/${existing.id}`, {
         method: "PATCH",
         headers: { Authorization: auth, "Content-Type": "application/json" },
         body: patchBody,
@@ -247,7 +256,7 @@ export const dlocalGoClient: IPaymentProvider = {
       error_url: errorUrl,
     });
 
-    const createRes = await fetch(`${base}/v1/subscription/plan`, {
+    const createRes = await fetchWithTimeout(`${base}/v1/subscription/plan`, {
       method: "POST",
       headers: { Authorization: auth, "Content-Type": "application/json" },
       body,
@@ -273,7 +282,7 @@ export const dlocalGoClient: IPaymentProvider = {
   async cancelSubscription(planId: number, subscriptionId: number): Promise<void> {
     logger.info("dLocal Go: cancelando suscripción", { planId, subscriptionId });
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${getBaseUrl()}/v1/subscription/plan/${planId}/subscription/${subscriptionId}/deactivate`,
       {
         method: "PATCH",
@@ -297,7 +306,7 @@ export const dlocalGoClient: IPaymentProvider = {
   ): Promise<SubscriptionDetails> {
     logger.info("dLocal Go: consultando suscripción", { planId, subscriptionId });
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${getBaseUrl()}/v1/subscription/plan/${planId}/subscription/all?page=1&page_size=100`,
       {
         headers: {
@@ -339,7 +348,7 @@ export const dlocalGoClient: IPaymentProvider = {
       email: email.slice(0, 3) + "***",
     });
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${getBaseUrl()}/v1/subscription/plan/${planId}/subscription/all?page=1&page_size=100`,
       {
         headers: {
@@ -385,7 +394,7 @@ export const dlocalGoClient: IPaymentProvider = {
   ): Promise<ExecutionDetails> {
     logger.info("dLocal Go: consultando ejecución", { subscriptionId, executionId });
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${getBaseUrl()}/v1/subscription/${subscriptionId}/execution/${executionId}`,
       {
         headers: {

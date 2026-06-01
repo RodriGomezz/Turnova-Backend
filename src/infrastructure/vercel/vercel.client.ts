@@ -21,7 +21,16 @@ export interface VercelCheckDomainResponse {
   configured: boolean;
 }
 
-const VERCEL_API = "https://api.vercel.com";
+const VERCEL_API         = "https://api.vercel.com";
+const VERCEL_TIMEOUT_MS  = 8_000;
+
+function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VERCEL_TIMEOUT_MS);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() =>
+    clearTimeout(timer),
+  );
+}
 
 function buildHeaders(): Record<string, string> {
   if (!process.env.VERCEL_API_TOKEN) {
@@ -83,7 +92,7 @@ async function parseResponse<T>(
 
 export const vercelClient = {
   async addDomain(domain: string): Promise<VercelAddDomainResponse> {
-    const res = await fetch(buildProjectUrl("/domains", "v10"), {
+    const res = await fetchWithTimeout(buildProjectUrl("/domains", "v10"), {
       method: "POST",
       headers: buildHeaders(),
       body: JSON.stringify({ name: domain }),
@@ -93,7 +102,7 @@ export const vercelClient = {
   },
 
   async removeDomain(domain: string): Promise<void> {
-    const res = await fetch(buildProjectUrl(`/domains/${encodeURIComponent(domain)}`), {
+    const res = await fetchWithTimeout(buildProjectUrl(`/domains/${encodeURIComponent(domain)}`), {
       method: "DELETE",
       headers: buildHeaders(),
     });
@@ -119,7 +128,7 @@ export const vercelClient = {
   },
 
   async checkDomain(domain: string): Promise<VercelCheckDomainResponse> {
-    const res = await fetch(buildProjectUrl(`/domains/${encodeURIComponent(domain)}`), {
+    const res = await fetchWithTimeout(buildProjectUrl(`/domains/${encodeURIComponent(domain)}`), {
       method: "GET",
       headers: buildHeaders(),
     });

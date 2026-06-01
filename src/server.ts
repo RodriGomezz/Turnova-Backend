@@ -101,10 +101,13 @@ process.on("uncaughtException", (error: Error) => {
   server.close(() => process.exit(1));
 });
 
-process.on("SIGTERM", () => {
-  logger.info("SIGTERM recibido — cerrando servidor...");
+function shutdown(signal: string) {
+  logger.info(`${signal} recibido — cerrando servidor...`);
   server.close(() => {
     logger.info("Servidor cerrado correctamente");
     process.exit(0);
   });
-});
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT",  () => shutdown("SIGINT"));

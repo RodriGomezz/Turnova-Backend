@@ -20,31 +20,38 @@ async function verifyPendingDomains(): Promise<void> {
 
   logger.info(`Verificando ${businesses.length} dominio(s) pendiente(s)`);
 
-  for (const business of businesses) {
-    try {
-      const result = await vercelClient.checkDomain(business.custom_domain!);
+  // Procesar en paralelo con concurrencia máxima de 5 para no saturar la API
+  // de Vercel. Con for...of + await tomaba ~500ms por dominio en serie.
+  const CONCURRENCY = 5;
+  for (let i = 0; i < businesses.length; i += CONCURRENCY) {
+    const batch = businesses.slice(i, i + CONCURRENCY);
+    await Promise.allSettled(
+      batch.map(async (business) => {
+        try {
+          const result = await vercelClient.checkDomain(business.custom_domain!);
+          if (result.verified && result.configured) {
+            await supabase
+              .from("businesses")
+              .update({
+                domain_verified:    true,
+                domain_verified_at: new Date().toISOString(),
+              })
+              .eq("id", business.id);
 
-      if (result.verified && result.configured) {
-        await supabase
-          .from("businesses")
-          .update({
-            domain_verified: true,
-            domain_verified_at: new Date().toISOString(),
-          })
-          .eq("id", business.id);
-
-        logger.info("Dominio verificado", {
-          businessId: business.id,
-          domain: business.custom_domain,
-        });
-      }
-    } catch (err) {
-      logger.warn("Error verificando dominio", {
-        businessId: business.id,
-        domain: business.custom_domain,
-        error: err instanceof Error ? err.message : err,
-      });
-    }
+            logger.info("Dominio verificado", {
+              businessId: business.id,
+              domain:     business.custom_domain,
+            });
+          }
+        } catch (err) {
+          logger.warn("Error verificando dominio", {
+            businessId: business.id,
+            domain:     business.custom_domain,
+            error:      err instanceof Error ? err.message : err,
+          });
+        }
+      }),
+    );
   }
 }
 
