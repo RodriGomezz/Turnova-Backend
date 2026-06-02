@@ -6,36 +6,13 @@ import {
 import { CreateBusinessUseCase } from "../../application/businesses/CreateBusinessUseCase";
 import { BusinessRepository } from "../../infrastructure/database/BusinessRepository";
 import { UserRepository } from "../../infrastructure/database/UserRepository";
-import { RegisterInput, LoginInput, ResendConfirmationInput } from "../schemas/auth.schema";
+import { RegisterInput, LoginInput } from "../schemas/auth.schema";
 import {
   AppError,
   NotFoundError,
 } from "../middlewares/errorHandler.middleware";
 import { invalidateUserCache } from "../middlewares/auth.middleware";
 import { logger } from "../../infrastructure/logger";
-
-// ── Configuración de la cookie del refresh token ──────────────────────────────
-// HttpOnly: invisible para JS — XSS no puede leerla
-// Secure:   solo HTTPS
-// SameSite: Strict — no se envía en requests cross-site (anti-CSRF)
-// Path:     solo se adjunta al endpoint de refresh — no viaja en cada request
-const REFRESH_COOKIE_OPTIONS = {
-  httpOnly:  true,
-  secure:    true,
-  sameSite:  "strict" as const,
-  path:      "/api/auth/refresh",
-  maxAge:    7 * 24 * 60 * 60 * 1000, // 7 días en ms
-};
-
-function getAuthRedirectUrl(path: string): string {
-  const baseUrl = (
-    process.env.AUTH_EMAIL_REDIRECT_URL ??
-    process.env.FRONTEND_URL ??
-    "http://localhost:4200"
-  ).replace(/\/+$/, "");
-
-  return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
-}
 
 export class AuthController {
   private readonly createBusinessUseCase: CreateBusinessUseCase;
@@ -68,19 +45,22 @@ export class AuthController {
         termino_reserva,
       } = req.body as RegisterInput;
 
+      const frontendUrl = (process.env.FRONTEND_URL ?? "http://localhost:4200").replace(/\/+$/, "");
+
       const { data: authData, error: authError } =
         await supabase.auth.admin.createUser({
           email,
           password,
           email_confirm: false,
-          user_metadata: {
-            nombre,
-            nombre_negocio,
-            slug,
+          options: {
+            emailRedirectTo: `${frontendUrl}/login?email_confirmed=1`,
           },
         });
 
       if (authError) {
+        // Supabase devuelve "User already registered" o "Email already in use"
+        // para emails duplicados. Detectarlo y dar un mensaje claro para que
+        // el usuario vaya a login en lugar de reintentar el registro.
         const msg = authError.message.toLowerCase();
         if (
           msg.includes("already registered") ||
@@ -111,26 +91,8 @@ export class AuthController {
           termino_reserva,
         });
 
-        const authClient = createSupabaseAuthClient();
-        const { error: confirmationError } = await authClient.auth.resend({
-          type: "signup",
-          email,
-          options: {
-            emailRedirectTo: getAuthRedirectUrl("/login?email_confirmed=1"),
-          },
-        });
-
-        if (confirmationError) {
-          logger.warn("No se pudo enviar email de confirmación de Supabase", {
-            error: confirmationError.message,
-          });
-        }
-
         res.status(201).json({
-          message:
-            "Cuenta creada. Revisá tu email para confirmar la cuenta antes de ingresar.",
-          email,
-          requires_email_confirmation: true,
+          message: "Cuenta creada exitosamente",
           business: {
             id: business.id,
             slug: business.slug,
@@ -169,37 +131,37 @@ export class AuthController {
         email,
         password,
       });
+
       if (error) {
         const msg = error.message.toLowerCase();
         if (msg.includes("email not confirmed") || msg.includes("not confirmed")) {
           throw new AppError(
-            "Confirma tu email antes de ingresar. Revisa tu bandeja de entrada.",
+            "Confirmá tu email antes de ingresar. Revisá tu bandeja de entrada.",
             403,
           );
         }
-
         throw new AppError("Credenciales inválidas", 401);
       }
+
       if (!data.user?.email_confirmed_at) {
         throw new AppError(
-          "Confirma tu email antes de ingresar. Revisa tu bandeja de entrada.",
+          "Confirmá tu email antes de ingresar. Revisá tu bandeja de entrada.",
           403,
         );
       }
 
+      // Registrar último acceso en login — un write puntual es suficiente.
+      // Fire-and-forget: no bloquea la respuesta ni falla el login si la BD tarda.
       this.userRepository
         .updateLastSeen(data.user!.id, new Date().toISOString())
         .catch((err) => logger.error("Error actualizando last_seen_at en login", { err }));
 
-      // Refresh token en HttpOnly cookie — no viaja en el body ni en localStorage.
-      // El browser lo adjunta automáticamente a /api/auth/refresh gracias al Path.
-      res.cookie("refresh_token", data.session.refresh_token, REFRESH_COOKIE_OPTIONS);
-
       res.json({
-        token:      data.session.access_token,
+        token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
         expires_at: data.session.expires_at,
         user: {
-          id:    data.user.id,
+          id: data.user.id,
           email: data.user.email,
         },
       });
@@ -248,11 +210,8 @@ export class AuthController {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      // Leer el refresh token de la HttpOnly cookie — nunca del body.
-      // El browser lo adjunta automáticamente gracias al Path=/api/auth/refresh.
-      const refresh_token = req.cookies?.refresh_token;
-      if (!refresh_token) throw new AppError("Refresh token requerido", 401);
-
+      const { refresh_token } = req.body;
+      if (!refresh_token) throw new AppError("Refresh token requerido", 400);
       const authClient = createSupabaseAuthClient();
 
       const { data, error } = await authClient.auth.refreshSession({
@@ -271,31 +230,28 @@ export class AuthController {
           );
 
         if (isTimeout) {
+          // Supabase tardó más de 8s — decirle al frontend que reintente en 3s
           res.set("Retry-After", "3");
           throw new AppError("Servicio temporalmente no disponible. Reintentá en unos segundos.", 503);
         }
 
-        // Token expirado — limpiar la cookie para no dejar un token inválido
-        res.clearCookie("refresh_token", { path: "/api/auth/refresh" });
         throw new AppError(
-          isExpired
-            ? "Sesión expirada. Iniciá sesión nuevamente."
-            : "Error al renovar sesión.",
+          isExpired ? "Sesión expirada. Iniciá sesión nuevamente." : "Error al renovar sesión.",
           isExpired ? 401 : 503,
         );
       }
 
+      // Registrar acceso también en refresh: el usuario mantiene la sesión
+      // sin hacer login explícito, pero sigue siendo un acceso real al panel.
+      // data.session.user.id está garantizado — ya verificamos !data.session arriba.
       this.userRepository
         .updateLastSeen(data.session.user.id, new Date().toISOString())
         .catch((err) => logger.error("Error actualizando last_seen_at en refresh", { err }));
 
-      // Rotar la cookie con el nuevo refresh token
-      res.cookie("refresh_token", data.session.refresh_token, REFRESH_COOKIE_OPTIONS);
-
       res.json({
-        token:      data.session.access_token,
+        token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
         expires_at: data.session.expires_at,
-        // refresh_token ya NO va en el body — viaja en la cookie
       });
     } catch (error) {
       next(error);
@@ -328,6 +284,8 @@ export class AuthController {
       }
 
       await this.userRepository.update(userId, { nombre: nombre.trim() });
+
+      // Invalidar cache para que el próximo request cargue datos frescos
       invalidateUserCache(userId);
 
       res.json({ message: "Perfil actualizado correctamente" });
@@ -343,51 +301,22 @@ export class AuthController {
   ): Promise<void> => {
     try {
       const { email } = req.body as { email: string };
+
       if (!email) throw new AppError("El email es requerido", 400);
 
+      // Supabase envía el email automáticamente
       const authClient = createSupabaseAuthClient();
       const { error } = await authClient.auth.resetPasswordForEmail(email, {
-        redirectTo: getAuthRedirectUrl("/reset-password"),
+        redirectTo: `${process.env.FRONTEND_URL}/reset-password`,
       });
 
+      // Siempre responder igual — no revelar si el email existe
       if (error)
         logger.warn("Error en resetPasswordForEmail", { error: error.message });
 
       res.json({
         message:
           "Si el email existe, recibirás un link para restablecer tu contraseña.",
-      });
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  resendConfirmation = async (
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> => {
-    try {
-      const { email } = req.body as ResendConfirmationInput;
-      const authClient = createSupabaseAuthClient();
-
-      const { error } = await authClient.auth.resend({
-        type: "signup",
-        email,
-        options: {
-          emailRedirectTo: getAuthRedirectUrl("/login?email_confirmed=1"),
-        },
-      });
-
-      if (error) {
-        logger.warn("Error reenviando confirmación de email", {
-          error: error.message,
-        });
-      }
-
-      res.json({
-        message:
-          "Si la cuenta existe y todavía no fue confirmada, vas a recibir un nuevo email de confirmación.",
       });
     } catch (error) {
       next(error);
@@ -414,6 +343,7 @@ export class AuthController {
         );
       }
 
+      // Verificar el token y actualizar la contraseña
       const {
         data: { user },
         error: verifyError,
@@ -446,6 +376,7 @@ export class AuthController {
       const user = await this.userRepository.findById(userId);
       if (!user) throw new NotFoundError("Usuario");
 
+      // Buscar el negocio con plan Business entre todos los del usuario
       const { data: userBusinesses, error } = await supabase
         .from("user_businesses")
         .select(
@@ -479,6 +410,7 @@ export class AuthController {
         termino_servicio: businessBusiness.termino_servicio,
         termino_reserva: businessBusiness.termino_reserva,
         existingUser: true,
+        // Heredar plan Business y sin trial
         plan: "business",
         trial_ends_at: null,
       });
