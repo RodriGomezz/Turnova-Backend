@@ -52,9 +52,6 @@ export class AuthController {
           email,
           password,
           email_confirm: false,
-          options: {
-            emailRedirectTo: `${frontendUrl}/login?email_confirmed=1`,
-          },
         });
 
       if (authError) {
