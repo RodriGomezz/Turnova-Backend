@@ -172,12 +172,12 @@ export class BookingController {
         auto_confirmar: business.auto_confirmar ?? true,
       });
 
-      this.sendEmailsAsync({
-        booking,
-        business,
-        service: { nombre: service.nombre },
-        barber: { nombre: barber.nombre },
-      });
+      // this.sendEmailsAsync({
+      //   booking,
+      //   business,
+      //   service: { nombre: service.nombre },
+      //   barber: { nombre: barber.nombre },
+      // });
 
       res.status(201).json({
         message: "Turno creado exitosamente",
@@ -298,12 +298,12 @@ export class BookingController {
         auto_confirmar: business.auto_confirmar ?? true,
       });
 
-      this.sendEmailsAsync({
-        booking,
-        business,
-        service: { nombre: service.nombre },
-        barber: { nombre: barber.nombre },
-      });
+      // this.sendEmailsAsync({
+      //   booking,
+      //   business,
+      //   service: { nombre: service.nombre },
+      //   barber: { nombre: barber.nombre },
+      // });
 
       res.status(201).json({
         message: "Reserva creada exitosamente",
@@ -396,49 +396,49 @@ export class BookingController {
       );
     }
   }
+// De momento no enviamos mail al dueno por cada cancelacion, para no spamear. Si se quisiera implementar, se podria usar un metodo similar a sendEmailsAsync pero con solo el email de notificacion, y llamarlo desde cancelByToken despues de cancelar la reserva.
+  // private sendEmailsAsync(params: {
+  //   booking: { cliente_email: string; cliente_nombre: string; fecha: string; hora_inicio: string; hora_fin: string; cancellation_token: string };
+  //   business: { nombre: string; email: string | null; slug: string };
+  //   service: { nombre: string };
+  //   barber: { nombre: string };
+  // }): void {
+  //   const { booking, business, service, barber } = params;
+  //   const horaInicioFmt = booking.hora_inicio.slice(0, 5);
+  //   const horaFinFmt = booking.hora_fin.slice(0, 5);
 
-  private sendEmailsAsync(params: {
-    booking: { cliente_email: string; cliente_nombre: string; fecha: string; hora_inicio: string; hora_fin: string; cancellation_token: string };
-    business: { nombre: string; email: string | null; slug: string };
-    service: { nombre: string };
-    barber: { nombre: string };
-  }): void {
-    const { booking, business, service, barber } = params;
-    const horaInicioFmt = booking.hora_inicio.slice(0, 5);
-    const horaFinFmt = booking.hora_fin.slice(0, 5);
+  //   const tasks = [
+  //     this.emailService.sendBookingConfirmation({
+  //       to: booking.cliente_email,
+  //       clienteNombre: booking.cliente_nombre,
+  //       negocioNombre: business.nombre,
+  //       servicioNombre: service.nombre,
+  //       barberoNombre: barber.nombre,
+  //       fecha: booking.fecha,
+  //       horaInicio: horaInicioFmt,
+  //       cancellationToken: booking.cancellation_token,
+  //       slug: business.slug,
+  //     }),
+  //     ...(business.email
+  //       ? [
+  //           this.emailService.sendBookingNotification({
+  //             to: business.email,
+  //             negocioNombre: business.nombre,
+  //             clienteNombre: booking.cliente_nombre,
+  //             clienteEmail: booking.cliente_email,
+  //             clienteTelefono: "",
+  //             servicioNombre: service.nombre,
+  //             barberoNombre: barber.nombre,
+  //             fecha: booking.fecha,
+  //             horaInicio: horaInicioFmt,
+  //             horaFin: horaFinFmt,
+  //           }),
+  //         ]
+  //       : []),
+  //   ];
 
-    const tasks = [
-      this.emailService.sendBookingConfirmation({
-        to: booking.cliente_email,
-        clienteNombre: booking.cliente_nombre,
-        negocioNombre: business.nombre,
-        servicioNombre: service.nombre,
-        barberoNombre: barber.nombre,
-        fecha: booking.fecha,
-        horaInicio: horaInicioFmt,
-        cancellationToken: booking.cancellation_token,
-        slug: business.slug,
-      }),
-      ...(business.email
-        ? [
-            this.emailService.sendBookingNotification({
-              to: business.email,
-              negocioNombre: business.nombre,
-              clienteNombre: booking.cliente_nombre,
-              clienteEmail: booking.cliente_email,
-              clienteTelefono: "",
-              servicioNombre: service.nombre,
-              barberoNombre: barber.nombre,
-              fecha: booking.fecha,
-              horaInicio: horaInicioFmt,
-              horaFin: horaFinFmt,
-            }),
-          ]
-        : []),
-    ];
-
-    Promise.all(tasks).catch((err) => logger.error("Error enviando emails", err));
-  }
+  //   Promise.all(tasks).catch((err) => logger.error("Error enviando emails", err));
+  // }
   /**
    * GET /public/:slug/available-days-with-slots
    *
