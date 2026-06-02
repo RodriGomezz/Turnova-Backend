@@ -132,9 +132,24 @@ export class AuthController {
           termino_reserva,
         });
 
+        // Enviar email de confirmación — admin.createUser no lo dispara automáticamente
+        const authClient = createSupabaseAuthClient();
+        const { error: confirmationError } = await authClient.auth.resend({
+          type: "signup",
+          email,
+          options: {
+            emailRedirectTo: getAuthRedirectUrl("/login?email_confirmed=1"),
+          },
+        });
+
+        if (confirmationError) {
+          logger.warn("No se pudo enviar email de confirmación tras el registro", {
+            error: confirmationError.message,
+          });
+        }
+
         res.status(201).json({
-          message:
-            "Cuenta creada. Revisá tu email para confirmar la cuenta antes de ingresar.",
+          message: "Cuenta creada. Revisá tu email para confirmar la cuenta antes de ingresar.",
           email,
           requires_email_confirmation: true,
           business: {
@@ -276,7 +291,7 @@ export class AuthController {
       });
 
       if (error || !data.session) {
-        const msg       = error?.message?.toLowerCase() ?? "";
+        const msg = error?.message?.toLowerCase() ?? "";
         const isTimeout = msg.includes("aborted") || msg.includes("abort");
         const isExpired =
           !isTimeout && (
