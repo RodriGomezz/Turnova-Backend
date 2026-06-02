@@ -62,7 +62,12 @@ export class AuthController {
         await supabase.auth.admin.createUser({
           email,
           password,
-          email_confirm: true,
+          email_confirm: false,
+          user_metadata: {
+            nombre,
+            nombre_negocio,
+            slug,
+          },
         });
 
       if (authError) {
@@ -96,8 +101,27 @@ export class AuthController {
           termino_reserva,
         });
 
+        const authClient = createSupabaseAuthClient();
+        const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:4200";
+        const { error: confirmationError } = await authClient.auth.resend({
+          type: "signup",
+          email,
+          options: {
+            emailRedirectTo: `${frontendUrl}/login?email_confirmed=1`,
+          },
+        });
+
+        if (confirmationError) {
+          logger.warn("No se pudo enviar email de confirmación de Supabase", {
+            error: confirmationError.message,
+          });
+        }
+
         res.status(201).json({
-          message: "Cuenta creada exitosamente",
+          message:
+            "Cuenta creada. Revisá tu email para confirmar la cuenta antes de ingresar.",
+          email,
+          requires_email_confirmation: true,
           business: {
             id: business.id,
             slug: business.slug,
@@ -136,8 +160,17 @@ export class AuthController {
         email,
         password,
       });
-      if (error) throw new AppError("Credenciales inválidas", 401);
+      if (error) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes("email not confirmed") || msg.includes("not confirmed")) {
+          throw new AppError(
+            "Confirma tu email antes de ingresar. Revisa tu bandeja de entrada.",
+            403,
+          );
+        }
 
+        throw new AppError("Credenciales inválidas", 401);
+      }
       this.userRepository
         .updateLastSeen(data.user!.id, new Date().toISOString())
         .catch((err) => logger.error("Error actualizando last_seen_at en login", { err }));
