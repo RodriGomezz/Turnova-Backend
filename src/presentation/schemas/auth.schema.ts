@@ -42,5 +42,10 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+export const resendConfirmationSchema = z.object({
+  email: z.string().email().toLowerCase().trim(),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type ResendConfirmationInput = z.infer<typeof resendConfirmationSchema>;

@@ -2,7 +2,7 @@ import express, { Application } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
-import { generalLimiter, healthLimiter, publicLimiter, refreshLimiter, resetLimiter, uploadLimiter, loginLimiter, loginByEmailLimiter, registerLimiter } from './presentation/middlewares/rateLimiter.middleware';
+import { generalLimiter, healthLimiter, publicLimiter, uploadLimiter } from './presentation/middlewares/rateLimiter.middleware';
 import { errorHandler } from './presentation/middlewares/errorHandler.middleware';
 import { requestLogger } from './presentation/middlewares/requestLogger.middleware';
 import authRoutes from './presentation/routes/auth.routes';
@@ -113,13 +113,6 @@ app.use('/api/bookings/public',          publicLimiter);
 app.use('/api/services/defaults',        publicLimiter);
 app.use('/api/subscriptions/plans',      publicLimiter);
 
-// Login: primero por email (5 intentos / cuenta), luego por IP (30 / red)
-app.use('/api/auth/login',          loginByEmailLimiter);
-app.use('/api/auth/login',          loginLimiter);
-app.use('/api/auth/register',       registerLimiter);
-app.use('/api/auth/request-reset',  resetLimiter);
-app.use('/api/auth/reset-password', resetLimiter);
-app.use('/api/auth/refresh',        refreshLimiter);
 
 app.use('/api/upload',              uploadLimiter);      // nuevo — faltaba
 

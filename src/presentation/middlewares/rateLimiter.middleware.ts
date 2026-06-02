@@ -44,9 +44,10 @@ const baseOptions = {
 // Límite por IP: 30 req / 15 min — cubre 3 empleados en la misma red WiFi
 export const loginLimiter: RateLimitRequestHandler = rateLimit({
   ...baseOptions,
-  windowMs: 15 * 60 * 1000,
-  max:      30,
-  handler:  makeHandler(
+  windowMs:              15 * 60 * 1000,
+  max:                   150,
+  skipSuccessfulRequests: true,
+  handler:               makeHandler(
     "Demasiados intentos desde esta red. Esperá 15 minutos.",
   ),
 });
@@ -55,7 +56,7 @@ export const loginLimiter: RateLimitRequestHandler = rateLimit({
 // sin afectar a otros empleados en la misma red.
 const loginAttemptsByEmail = new Map<string, { count: number; resetAt: number }>();
 const EMAIL_WINDOW_MS = 15 * 60 * 1000;
-const EMAIL_MAX       = 5;
+const EMAIL_MAX       = 20;
 
 setInterval(() => {
   const now = Date.now();
@@ -86,10 +87,22 @@ export function loginByEmailLimiter(req: Request, res: Response, next: NextFunct
       });
       return;
     }
-    entry.count++;
-  } else {
-    loginAttemptsByEmail.set(email, { count: 1, resetAt: now + EMAIL_WINDOW_MS });
   }
+
+  res.on("finish", () => {
+    if (![401, 403].includes(res.statusCode)) return;
+
+    const current = loginAttemptsByEmail.get(email);
+    if (current && current.resetAt > Date.now()) {
+      current.count++;
+      return;
+    }
+
+    loginAttemptsByEmail.set(email, {
+      count:   1,
+      resetAt: Date.now() + EMAIL_WINDOW_MS,
+    });
+  });
 
   next();
 }
@@ -98,7 +111,7 @@ export function loginByEmailLimiter(req: Request, res: Response, next: NextFunct
 export const registerLimiter: RateLimitRequestHandler = rateLimit({
   ...baseOptions,
   windowMs:           15 * 60 * 1000,
-  max:                20,
+  max:                50,
   skipFailedRequests: true,
   handler:            makeHandler("Demasiados intentos de registro. Esperá 15 minutos."),
 });

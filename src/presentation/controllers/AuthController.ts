@@ -6,7 +6,7 @@ import {
 import { CreateBusinessUseCase } from "../../application/businesses/CreateBusinessUseCase";
 import { BusinessRepository } from "../../infrastructure/database/BusinessRepository";
 import { UserRepository } from "../../infrastructure/database/UserRepository";
-import { RegisterInput, LoginInput } from "../schemas/auth.schema";
+import { RegisterInput, LoginInput, ResendConfirmationInput } from "../schemas/auth.schema";
 import {
   AppError,
   NotFoundError,
@@ -26,6 +26,16 @@ const REFRESH_COOKIE_OPTIONS = {
   path:      "/api/auth/refresh",
   maxAge:    7 * 24 * 60 * 60 * 1000, // 7 días en ms
 };
+
+function getAuthRedirectUrl(path: string): string {
+  const baseUrl = (
+    process.env.AUTH_EMAIL_REDIRECT_URL ??
+    process.env.FRONTEND_URL ??
+    "http://localhost:4200"
+  ).replace(/\/+$/, "");
+
+  return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+}
 
 export class AuthController {
   private readonly createBusinessUseCase: CreateBusinessUseCase;
@@ -102,12 +112,11 @@ export class AuthController {
         });
 
         const authClient = createSupabaseAuthClient();
-        const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:4200";
         const { error: confirmationError } = await authClient.auth.resend({
           type: "signup",
           email,
           options: {
-            emailRedirectTo: `${frontendUrl}/login?email_confirmed=1`,
+            emailRedirectTo: getAuthRedirectUrl("/login?email_confirmed=1"),
           },
         });
 
@@ -171,6 +180,13 @@ export class AuthController {
 
         throw new AppError("Credenciales inválidas", 401);
       }
+      if (!data.user?.email_confirmed_at) {
+        throw new AppError(
+          "Confirma tu email antes de ingresar. Revisa tu bandeja de entrada.",
+          403,
+        );
+      }
+
       this.userRepository
         .updateLastSeen(data.user!.id, new Date().toISOString())
         .catch((err) => logger.error("Error actualizando last_seen_at en login", { err }));
@@ -331,7 +347,7 @@ export class AuthController {
 
       const authClient = createSupabaseAuthClient();
       const { error } = await authClient.auth.resetPasswordForEmail(email, {
-        redirectTo: `${process.env.FRONTEND_URL}/reset-password`,
+        redirectTo: getAuthRedirectUrl("/reset-password"),
       });
 
       if (error)
@@ -340,6 +356,38 @@ export class AuthController {
       res.json({
         message:
           "Si el email existe, recibirás un link para restablecer tu contraseña.",
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  resendConfirmation = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { email } = req.body as ResendConfirmationInput;
+      const authClient = createSupabaseAuthClient();
+
+      const { error } = await authClient.auth.resend({
+        type: "signup",
+        email,
+        options: {
+          emailRedirectTo: getAuthRedirectUrl("/login?email_confirmed=1"),
+        },
+      });
+
+      if (error) {
+        logger.warn("Error reenviando confirmación de email", {
+          error: error.message,
+        });
+      }
+
+      res.json({
+        message:
+          "Si la cuenta existe y todavía no fue confirmada, vas a recibir un nuevo email de confirmación.",
       });
     } catch (error) {
       next(error);
