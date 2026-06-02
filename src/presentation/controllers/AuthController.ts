@@ -6,13 +6,54 @@ import {
 import { CreateBusinessUseCase } from "../../application/businesses/CreateBusinessUseCase";
 import { BusinessRepository } from "../../infrastructure/database/BusinessRepository";
 import { UserRepository } from "../../infrastructure/database/UserRepository";
-import { RegisterInput, LoginInput } from "../schemas/auth.schema";
+import { RegisterInput, LoginInput, ResendConfirmationInput } from "../schemas/auth.schema";
 import {
   AppError,
   NotFoundError,
 } from "../middlewares/errorHandler.middleware";
 import { invalidateUserCache } from "../middlewares/auth.middleware";
 import { logger } from "../../infrastructure/logger";
+
+type RefreshCookieSameSite = "lax" | "strict" | "none";
+
+const isProduction = process.env.NODE_ENV === "production";
+const refreshCookieSameSite = (
+  process.env.REFRESH_COOKIE_SAMESITE?.toLowerCase() as RefreshCookieSameSite | undefined
+) ?? (isProduction ? "none" : "lax");
+
+const REFRESH_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: isProduction || refreshCookieSameSite === "none",
+  sameSite: refreshCookieSameSite,
+  path: "/api/auth/refresh",
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+
+function getCookie(req: Request, name: string): string | undefined {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return undefined;
+
+  return cookieHeader
+    .split(";")
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+}
+
+function getAuthRedirectUrl(path: string): string {
+  const rawBaseUrl = (
+    process.env.AUTH_EMAIL_REDIRECT_URL ??
+    process.env.FRONTEND_URL ??
+    "http://localhost:4200"
+  ).trim();
+
+  const withProtocol = /^https?:\/\//i.test(rawBaseUrl)
+    ? rawBaseUrl
+    : `https://${rawBaseUrl}`;
+
+  const baseUrl = withProtocol.replace(/\/+$/, "");
+  return `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+}
 
 export class AuthController {
   private readonly createBusinessUseCase: CreateBusinessUseCase;
@@ -45,13 +86,16 @@ export class AuthController {
         termino_reserva,
       } = req.body as RegisterInput;
 
-      const frontendUrl = (process.env.FRONTEND_URL ?? "http://localhost:4200").replace(/\/+$/, "");
-
       const { data: authData, error: authError } =
         await supabase.auth.admin.createUser({
           email,
           password,
           email_confirm: false,
+          user_metadata: {
+            nombre,
+            nombre_negocio,
+            slug,
+          },
         });
 
       if (authError) {
@@ -89,7 +133,10 @@ export class AuthController {
         });
 
         res.status(201).json({
-          message: "Cuenta creada exitosamente",
+          message:
+            "Cuenta creada. Revisá tu email para confirmar la cuenta antes de ingresar.",
+          email,
+          requires_email_confirmation: true,
           business: {
             id: business.id,
             slug: business.slug,
@@ -141,6 +188,12 @@ export class AuthController {
       }
 
       if (!data.user?.email_confirmed_at) {
+        res.clearCookie("refresh_token", {
+          path: REFRESH_COOKIE_OPTIONS.path,
+          secure: REFRESH_COOKIE_OPTIONS.secure,
+          sameSite: REFRESH_COOKIE_OPTIONS.sameSite,
+        });
+
         throw new AppError(
           "Confirmá tu email antes de ingresar. Revisá tu bandeja de entrada.",
           403,
@@ -153,9 +206,10 @@ export class AuthController {
         .updateLastSeen(data.user!.id, new Date().toISOString())
         .catch((err) => logger.error("Error actualizando last_seen_at en login", { err }));
 
+      res.cookie("refresh_token", data.session.refresh_token, REFRESH_COOKIE_OPTIONS);
+
       res.json({
         token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
         expires_at: data.session.expires_at,
         user: {
           id: data.user.id,
@@ -192,6 +246,12 @@ export class AuthController {
             business_id: fallbackBusiness.id,
           });
           invalidateUserCache(user.id);
+        } else {
+          invalidateUserCache(user.id);
+          throw new AppError(
+            "No tenés negocios activos disponibles. Revisá tu plan o contactá soporte.",
+            403,
+          );
         }
       }
 
@@ -207,8 +267,8 @@ export class AuthController {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const { refresh_token } = req.body;
-      if (!refresh_token) throw new AppError("Refresh token requerido", 400);
+      const refresh_token = getCookie(req, "refresh_token");
+      if (!refresh_token) throw new AppError("Refresh token requerido", 401);
       const authClient = createSupabaseAuthClient();
 
       const { data, error } = await authClient.auth.refreshSession({
@@ -245,9 +305,10 @@ export class AuthController {
         .updateLastSeen(data.session.user.id, new Date().toISOString())
         .catch((err) => logger.error("Error actualizando last_seen_at en refresh", { err }));
 
+      res.cookie("refresh_token", data.session.refresh_token, REFRESH_COOKIE_OPTIONS);
+
       res.json({
         token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
         expires_at: data.session.expires_at,
       });
     } catch (error) {
@@ -304,7 +365,7 @@ export class AuthController {
       // Supabase envía el email automáticamente
       const authClient = createSupabaseAuthClient();
       const { error } = await authClient.auth.resetPasswordForEmail(email, {
-        redirectTo: `${process.env.FRONTEND_URL}/reset-password`,
+        redirectTo: getAuthRedirectUrl("/reset-password"),
       });
 
       // Siempre responder igual — no revelar si el email existe
@@ -320,19 +381,53 @@ export class AuthController {
     }
   };
 
+  resendConfirmation = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { email } = req.body as ResendConfirmationInput;
+      const authClient = createSupabaseAuthClient();
+
+      const { error } = await authClient.auth.resend({
+        type: "signup",
+        email,
+        options: {
+          emailRedirectTo: getAuthRedirectUrl("/login?email_confirmed=1"),
+        },
+      });
+
+      if (error) {
+        logger.warn("Error reenviando confirmación de email", {
+          error: error.message,
+        });
+      }
+
+      res.json({
+        message:
+          "Si la cuenta existe y todavía no fue confirmada, vas a recibir un nuevo email de confirmación.",
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   resetPassword = async (
     req: Request,
     res: Response,
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const { access_token, password } = req.body as {
+      const { access_token, refresh_token, password } = req.body as {
         access_token: string;
+        refresh_token?: string;
         password: string;
       };
       const authClient = createSupabaseAuthClient();
 
       if (!access_token) throw new AppError("Token requerido", 400);
+      if (!refresh_token) throw new AppError("Refresh token de recuperación requerido", 400);
       if (!password || password.length < 8) {
         throw new AppError(
           "La contraseña debe tener al menos 8 caracteres",
