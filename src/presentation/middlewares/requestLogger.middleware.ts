@@ -10,9 +10,23 @@ declare global {
   }
 }
 
+// Extraer el sub (userId) del JWT sin verificar la firma.
+// Solo para logging — nunca usar para autenticar.
+// Si el token es inválido o está ausente devuelve undefined.
+function extractUserIdFromToken(req: Request): string | undefined {
+  try {
+    const header = req.headers.authorization;
+    if (!header?.startsWith("Bearer ")) return undefined;
+    const payload = header.slice(7).split(".")[1];
+    if (!payload) return undefined;
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return typeof decoded.sub === "string" ? decoded.sub : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const requestLogger = (req: Request, res: Response, next: NextFunction): void => {
-  // Correlation ID: reutilizar el del cliente si viene (útil para tracing
-  // distribuido), generar uno nuevo si no.
   const requestId = (req.headers["x-request-id"] as string) ?? randomUUID();
   req.requestId   = requestId;
   res.setHeader("x-request-id", requestId);
@@ -24,6 +38,12 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
     const status   = res.statusCode;
     const msg      = `${req.method} ${req.path} → ${status} (${duration}ms)`;
 
+    // Contexto de usuario para debugging — priorizar los valores ya verificados
+    // por authMiddleware (req.userId, req.businessId). Si no están disponibles
+    // (ruta pública o error antes del middleware), intentar extraer del JWT sin verificar.
+    const userId     = (req as any).userId     ?? (status >= 400 ? extractUserIdFromToken(req) : undefined);
+    const businessId = (req as any).businessId ?? undefined;
+
     const meta = {
       requestId,
       method:   req.method,
@@ -31,8 +51,9 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
       status,
       duration,
       ip:       req.ip,
-      // Loguear body sanitizado en errores para facilitar debugging en producción.
-      // El logger.redact() cubre campos sensibles antes de escribir.
+      ...(userId     ? { userId }     : {}),
+      ...(businessId ? { businessId } : {}),
+      // Body sanitizado solo en errores — logger.redact() cubre campos sensibles
       ...(status >= 400 && req.body && Object.keys(req.body).length > 0
         ? { body: req.body }
         : {}),
