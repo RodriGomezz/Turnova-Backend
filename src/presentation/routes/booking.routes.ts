@@ -83,7 +83,7 @@ async function getPublicBusinessData(slug: string) {
   const businessStatus = getBusinessStatus(b);
   const isDisponible   = businessStatus === 'active' || businessStatus === 'trial';
 
-  const [barbersRes, servicesRes] = isDisponible
+  const [barbersRes, servicesRes, barberServicesRes] = isDisponible
     ? await Promise.all([
         supabase
           .from('barbers')
@@ -96,14 +96,32 @@ async function getPublicBusinessData(slug: string) {
           .select('id, nombre, descripcion, duracion_minutos, precio, precio_hasta, incluye')
           .eq('business_id', b.id)
           .eq('activo', true),
+        supabase
+          .from('barber_services')
+          .select('barber_id, service_id')
+          .eq('business_id', b.id),
       ])
-    : [{ data: [] }, { data: [] }];
+    : [{ data: [] }, { data: [] }, { data: [] }];
+
+  // Construir Map<barberId, serviceId[]> para adjuntar a cada barbero
+  const servicesByBarber = new Map<string, string[]>();
+  for (const row of (barberServicesRes.data ?? []) as { barber_id: string; service_id: string }[]) {
+    if (!servicesByBarber.has(row.barber_id)) servicesByBarber.set(row.barber_id, []);
+    servicesByBarber.get(row.barber_id)!.push(row.service_id);
+  }
+
+  const barbers = (isDisponible ? (barbersRes.data ?? []) : []).map((barber: any) => ({
+    ...barber,
+    // service_ids: [] = sin restricción (hace todos los servicios)
+    // service_ids: ["id1", "id2"] = solo esos servicios
+    service_ids: servicesByBarber.get(barber.id) ?? [],
+  }));
 
   return {
     notFound: false,
     data: {
       business: { ...b, status: businessStatus },
-      barbers:  isDisponible ? (barbersRes.data ?? []) : [],
+      barbers,
       services: isDisponible ? (servicesRes.data ?? []) : [],
     },
   } as const;

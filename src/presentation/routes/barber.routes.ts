@@ -25,4 +25,11 @@ router.put(
 );
 router.delete("/:id", invalidatePublicCache, controller.delete);
 
+// ── Servicios por barbero (M2M) ───────────────────────────────────────────────
+// IMPORTANTE: estas rutas deben ir ANTES de /:id para que Express no confunda
+// "services" con un :id de barbero.
+router.get("/:id/services",               controller.listServices);
+router.post("/:id/services",              controller.addService);
+router.delete("/:id/services/:serviceId", controller.removeService);
+
 export default router;
