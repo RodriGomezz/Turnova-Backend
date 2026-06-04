@@ -88,7 +88,7 @@ app.use(
     },
     credentials:           true,
     maxAge:                86400,  // cachear preflight 24h — evita OPTIONS en cada request
-    allowedHeaders:        ["Content-Type", "Authorization"],
+    allowedHeaders:        ["Content-Type", "Authorization",  'Cache-Control'],
     exposedHeaders:        ["Retry-After"],  // necesario para que el frontend lea el header de retry
   }),
 );

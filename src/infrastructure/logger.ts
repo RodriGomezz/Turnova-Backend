@@ -1,5 +1,4 @@
 import { createLogger, format, transports } from "winston";
-import path from "path";
 
 const { combine, timestamp, printf, colorize, errors } = format;
 
@@ -24,8 +23,15 @@ const SENSITIVE_FIELDS = new Set([
   "cardnumber",
 ]);
 
-// ── Redact recursivo ──────────────────────────────────────────────────────────
-function redact(
+// Regex para redactar valores sensibles dentro de strings planos.
+// Cubre: "email: foo@bar.com", `token=abc123`, JSON inline, etc.
+const SENSITIVE_PATTERN = new RegExp(
+  `(${[...SENSITIVE_FIELDS].join("|")})[=:\\s"']+[^\\s"',}&]+`,
+  "gi",
+);
+
+// ── Redact recursivo sobre objetos ────────────────────────────────────────────
+function redactObj(
   obj: Record<string, unknown>,
   depth = 0,
 ): Record<string, unknown> {
@@ -42,7 +48,7 @@ function redact(
         typeof item === "object" &&
         !(item instanceof Date) &&
         !(item instanceof Error)
-          ? redact(item as Record<string, unknown>, depth + 1)
+          ? redactObj(item as Record<string, unknown>, depth + 1)
           : item,
       );
     } else if (
@@ -51,7 +57,7 @@ function redact(
       !(value instanceof Date) &&
       !(value instanceof Error)
     ) {
-      result[key] = redact(value as Record<string, unknown>, depth + 1);
+      result[key] = redactObj(value as Record<string, unknown>, depth + 1);
     } else {
       result[key] = value;
     }
@@ -60,44 +66,51 @@ function redact(
   return result;
 }
 
+// ── Redact de strings planos ──────────────────────────────────────────────────
+function redactString(s: string): string {
+  return s.replace(SENSITIVE_PATTERN, (match, field) => `${field}=[REDACTED]`);
+}
+
 // ── Sanitize format ───────────────────────────────────────────────────────────
-// Redacta todos los campos del log info, no solo info.meta.
-// Se usa try/catch para que un error en el redact nunca rompa el logger.
 const sanitize = format((info) => {
   try {
-    const { level, message, timestamp: ts, stack, [Symbol.for('level')]: symLevel, ...rest } = info as any;
-    const sanitized = redact(rest as Record<string, unknown>);
+    // Redactar el mensaje de texto (cubre template literals con datos sensibles)
+    if (typeof info.message === "string") {
+      info.message = redactString(info.message);
+    }
+
+    // Redactar el objeto meta (propiedades extra del log)
+    const {
+      level,
+      message,
+      timestamp: ts,
+      stack,
+      [Symbol.for("level")]: symLevel,
+      [Symbol.for("splat")]: splat,
+      ...rest
+    } = info as any;
+
+    const sanitized = redactObj(rest as Record<string, unknown>);
     return Object.assign(info, sanitized);
   } catch {
+    // El logger nunca debe lanzar — si falla el sanitize, logueamos igual
     return info;
   }
 });
 
 // ── Formatos ──────────────────────────────────────────────────────────────────
-const logFormat = printf(({ level, message, timestamp: ts, stack, ...meta }) => {
-  const metaStr = Object.keys(meta).length
-    ? " " + JSON.stringify(meta)
-    : "";
-  return `${ts} [${level}] ${stack ?? message}${metaStr}`;
+const logFormat = printf(({ level, message, timestamp: ts, stack, requestId, ...meta }) => {
+  const rid = requestId ? ` [${requestId}]` : "";
+  const metaStr = Object.keys(meta).length ? " " + JSON.stringify(meta) : "";
+  return `${ts}${rid} [${level}] ${stack ?? message}${metaStr}`;
 });
 
 const isProd = process.env.NODE_ENV === "production";
 
-const fileFormat = () =>
-  isProd
-    ? combine(
-        timestamp(),
-        errors({ stack: true }),
-        sanitize(),
-        format.json(),
-      )
-    : combine(
-        timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-        errors({ stack: true }),
-        sanitize(),
-        logFormat,
-      );
-
+// ── Transport: Console ────────────────────────────────────────────────────────
+// En Render, stdout ES el sistema de logs. Todo va aquí.
+// - Prod:  JSON estructurado → parseado por Render Logs / Logtail / BetterStack
+// - Dev:   Texto coloreado → legible en terminal
 const consoleFormat = isProd
   ? combine(
       timestamp(),
@@ -115,11 +128,8 @@ const consoleFormat = isProd
 
 // ── Logger ────────────────────────────────────────────────────────────────────
 export const logger = createLogger({
-  level: process.env.LOG_LEVEL ?? (isProd ? "warn" : "info"),
+  level: process.env.LOG_LEVEL ?? (isProd ? "info" : "debug"),
 
-  // Formato global mínimo — solo timestamp y errors.
-  // sanitize y logFormat se aplican en cada transport para que
-  // el metadata no quede consumido antes de llegar al printf.
   format: combine(
     timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
     errors({ stack: true }),
@@ -127,30 +137,18 @@ export const logger = createLogger({
 
   transports: [
     new transports.Console({ format: consoleFormat }),
-
-    new transports.File({
-      filename: path.join("logs", "app.log"),
-      maxsize:  5 * 1024 * 1024,
-      maxFiles: 5,
-      tailable: true,
-      format:   fileFormat(),
-    }),
-
-    new transports.File({
-      filename: path.join("logs", "error.log"),
-      level:    "error",
-      maxsize:  5 * 1024 * 1024,
-      maxFiles: 5,
-      tailable: true,
-      format:   fileFormat(),
-    }),
   ],
 
   exceptionHandlers: [
-    new transports.File({ filename: path.join("logs", "exceptions.log") }),
+    new transports.Console({ format: consoleFormat }),
   ],
   rejectionHandlers: [
-    new transports.File({ filename: path.join("logs", "rejections.log") }),
+    new transports.Console({ format: consoleFormat }),
   ],
+
   exitOnError: false,
 });
+
+export function childLogger(requestId: string) {
+  return logger.child({ requestId });
+}
