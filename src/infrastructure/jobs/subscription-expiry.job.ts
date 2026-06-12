@@ -6,11 +6,20 @@ import {
   shouldDegradeExpiredGracePeriod,
 } from "../../domain/subscription-access";
 import { updateBusinessNetwork, findNetworkBusinessIds } from "../database/business-network";
+import { dlocalGoClient } from "../payments/dlocalgo.client";                          // ← nuevo
+import { HandleWebhookUseCase } from "../../application/subscriptions/HandleWebhookUseCase"; // ← nuevo
+import { EmailService } from "../../application/email/email.service";                  // ← nuevo
 
 const INTERVAL_MS = 60 * 60 * 1000; // cada hora
 
 const subscriptionRepository = new SubscriptionRepository();
 const businessRepository = new BusinessRepository();
+const emailService = new EmailService();                                                // ← nuevo
+const handleWebhookUseCase = new HandleWebhookUseCase(                                 // ← nuevo
+  subscriptionRepository,
+  businessRepository,
+  emailService,
+);
 
 async function downgradeBusinessToStarter(
   businessId: string,
@@ -107,7 +116,58 @@ async function processEndedCanceledSubscriptions(): Promise<void> {
   }
 }
 
+async function reconcileStaleActiveSubscriptions(): Promise<void> {
+  const stale = await subscriptionRepository.findStaleActive();
+
+  if (stale.length === 0) return;
+
+  logger.info(`Reconciliando ${stale.length} suscripción(es) active con período vencido`);
+
+  for (const sub of stale) {
+    try {
+      if (sub.dlocal_plan_id && sub.payer_email) {
+        const remote = await dlocalGoClient.findLatestSubscriptionByPlanAndEmail(
+          sub.dlocal_plan_id,
+          sub.payer_email,
+        );
+
+        if (remote?.status === "CONFIRMED" || remote?.active) {
+          // dLocal cobró pero el webhook no llegó — procesar ahora
+          await handleWebhookUseCase.execute({
+            external_id:        sub.id,
+            subscription_id:    remote.subscriptionId ?? sub.dlocal_subscription_id,
+            subscription_token: remote.subscriptionToken ?? sub.dlocal_subscription_token,
+            client_email:       remote.clientEmail ?? sub.payer_email ?? undefined,
+            status:             "CONFIRMED",
+          });
+          logger.info("Suscripción reconciliada exitosamente", {
+            subscriptionId: sub.id,
+            businessId:     sub.business_id,
+          });
+          continue;
+        }
+      }
+
+      // No se pudo confirmar con dLocal → degradar a past_due
+      await subscriptionRepository.updateStatus(sub.id, "past_due");
+      logger.warn("Suscripción active con período vencido degradada a past_due", {
+        subscriptionId:   sub.id,
+        businessId:       sub.business_id,
+        currentPeriodEnd: sub.current_period_end,
+      });
+
+    } catch (err) {
+      logger.error("Error reconciliando suscripción vencida", {
+        subscriptionId: sub.id,
+        error: err instanceof Error ? err.message : err,
+      });
+    }
+  }
+}
+
+// ── Modificar processSubscriptionExpirations para incluirla ───────────────
 export async function processSubscriptionExpirations(): Promise<void> {
+  await reconcileStaleActiveSubscriptions(); // ← agregar primera
   await processExpiredGracePeriods();
   await processEndedCanceledSubscriptions();
 }

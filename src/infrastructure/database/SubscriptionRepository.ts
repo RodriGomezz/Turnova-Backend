@@ -95,15 +95,30 @@ export class SubscriptionRepository implements ISubscriptionRepository {
     return data as Subscription;
   }
 
-  async findByDlocalSubscriptionId(subscriptionId: number): Promise<Subscription | null> {
-    const { data, error } = await supabase
-      .from(this.table).select("*")
-      .eq("dlocal_subscription_id", subscriptionId)
-      .single();
-    if (error?.code === "PGRST116") return null;
-    if (error) throw new AppError(error.message, 500);
-    return data as Subscription;
+  async findByDlocalSubscriptionId(subscriptionId: number | string): Promise<Subscription | null> {
+  const { data, error } = await supabase
+    .from(this.table).select("*")
+    .eq("dlocal_subscription_id", String(subscriptionId))  // siempre string → matchea columna text
+    .single();
+  if (error?.code === "PGRST116") return null;
+  if (error) throw new AppError(error.message, 500);
+  return data as Subscription;
   }
+
+  // SubscriptionRepository.ts
+async findStaleActive(): Promise<Subscription[]> {
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  
+  const { data, error } = await supabase
+    .from(this.table)
+    .select("*")
+    .eq("status", "active")
+    .lt("current_period_end", oneHourAgo) // vencida hace más de 1 hora
+    .not("current_period_end", "is", null);
+
+  if (error) throw new AppError(error.message, 500);
+  return (data ?? []) as Subscription[];
+}
 
   async findByPaymentId(paymentId: string): Promise<Subscription | null> {
     const { data, error } = await supabase
