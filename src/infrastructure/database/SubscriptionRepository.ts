@@ -105,20 +105,54 @@ export class SubscriptionRepository implements ISubscriptionRepository {
   return data as Subscription;
   }
 
-  // SubscriptionRepository.ts
-async findStaleActive(): Promise<Subscription[]> {
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  
-  const { data, error } = await supabase
-    .from(this.table)
-    .select("*")
-    .eq("status", "active")
-    .lt("current_period_end", oneHourAgo) // vencida hace más de 1 hora
-    .not("current_period_end", "is", null);
+  async findStaleActive(): Promise<Subscription[]> {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
-  if (error) throw new AppError(error.message, 500);
-  return (data ?? []) as Subscription[];
-}
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("*")
+      .eq("status", "active")
+      .lt("current_period_end", oneHourAgo)
+      .not("current_period_end", "is", null);
+
+    if (error) throw new AppError(error.message, 500);
+    return (data ?? []) as Subscription[];
+  }
+
+
+  /**
+   * Suscripciones en grace_period que tienen dlocal_plan_id y payer_email,
+   * es decir que podemos consultar contra dLocal para ver si el cobro
+   * fue exitoso y el webhook de éxito no llegó.
+   */
+  async findReconcilableGracePeriods(): Promise<Subscription[]> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("*")
+      .eq("status", "grace_period")
+      .not("dlocal_plan_id", "is", null)
+      .not("payer_email", "is", null);
+
+    if (error) throw new AppError(error.message, 500);
+    return (data ?? []) as Subscription[];
+  }
+
+  /**
+   * Suscripciones en past_due que tienen dlocal_plan_id y payer_email —
+   * primer cobro fallido, dLocal puede haber reintentado con éxito
+   * sin que el webhook de éxito llegara.
+   */
+  async findReconcilablePastDue(): Promise<Subscription[]> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("*")
+      .eq("status", "past_due")
+      .not("dlocal_plan_id", "is", null)
+      .not("payer_email", "is", null);
+
+    if (error) throw new AppError(error.message, 500);
+    return (data ?? []) as Subscription[];
+  }
 
   async findByPaymentId(paymentId: string): Promise<Subscription | null> {
     const { data, error } = await supabase

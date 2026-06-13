@@ -19,6 +19,10 @@ export interface ISubscriptionRepository {
   findByExecutionId(executionId: string): Promise<Subscription | null>;
   /** Busca suscripciones active con período vencido */
   findStaleActive(): Promise<Subscription[]>;
+  /** Busca suscripciones en grace_period con plan_id y email — consultables contra dLocal */
+  findReconcilableGracePeriods(): Promise<Subscription[]>;
+  /** Busca suscripciones en past_due con plan_id y email — consultables contra dLocal */
+  findReconcilablePastDue(): Promise<Subscription[]>;
   
   findExpiredGracePeriods(): Promise<Subscription[]>;
   findEndedCanceledSubscriptions(): Promise<Subscription[]>;
