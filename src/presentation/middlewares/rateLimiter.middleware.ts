@@ -178,6 +178,6 @@ export const publicLimiter: RateLimitRequestHandler = rateLimit({
 export const healthLimiter: RateLimitRequestHandler = rateLimit({
   ...baseOptions,
   windowMs: 5 * 60 * 1000,
-  max:      60,
+  max:      500, // UptimeRobot + Render load balancer pingen frecuente — no limitar
   handler:  makeHandler("Demasiadas solicitudes al health check."),
 });
