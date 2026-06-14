@@ -3,8 +3,8 @@ import { z } from "zod";
 export const createSubscriptionSchema = z.object({
   plan:         z.enum(["starter", "pro", "business"]),
   email:        z.string().email().toLowerCase().trim(),
-  billingCycle: z.enum(["monthly", "annual"]).optional(),
-  cycle:        z.enum(["monthly", "annual"]).optional(),
+  billingCycle: z.enum(["monthly", "annual", "daily"]).optional(),
+  cycle:        z.enum(["monthly", "annual", "daily"]).optional(),
 }).transform((data) => ({
   ...data,
   billingCycle: data.billingCycle ?? data.cycle ?? "monthly",

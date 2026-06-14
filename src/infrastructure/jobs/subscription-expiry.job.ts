@@ -10,7 +10,8 @@ import { dlocalGoClient } from "../payments/dlocalgo.client";
 import { HandleWebhookUseCase } from "../../application/subscriptions/HandleWebhookUseCase";
 import { EmailService } from "../../application/email/email.service";
 
-const INTERVAL_MS = 5 * 60 * 1000; // cada hora
+const INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 horas
+// const INTERVAL_MS = 1 * 60 * 1000;
 
 const subscriptionRepository = new SubscriptionRepository();
 const businessRepository      = new BusinessRepository();

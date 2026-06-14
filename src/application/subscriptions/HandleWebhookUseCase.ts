@@ -140,12 +140,14 @@ export class HandleWebhookUseCase {
 
     // ── Período según ciclo de facturación ───────────────────────────────
     // Para suscripciones anuales el período es de 365 días; para mensuales, 30.
-    const cycle: BillingCycle = subscription.billing_cycle ?? "monthly";
-    if (cycle === "annual") {
-      nextPeriodEnd.setFullYear(nextPeriodEnd.getFullYear() + 1);
-    } else {
-      nextPeriodEnd.setDate(nextPeriodEnd.getDate() + 30);
-    }
+  const cycle: BillingCycle = subscription.billing_cycle ?? "monthly";
+if (cycle === "annual") {
+  nextPeriodEnd.setFullYear(nextPeriodEnd.getFullYear() + 1);
+} else if (cycle === "daily") {
+  nextPeriodEnd.setDate(nextPeriodEnd.getDate() + 1);  // ← nuevo
+} else {
+  nextPeriodEnd.setDate(nextPeriodEnd.getDate() + 30);
+}
 
     await this.subscriptionRepository.updateStatus(subscription.id, "active", {
       dlocal_subscription_id:    payload.subscription_id ?? subscription.dlocal_subscription_id,

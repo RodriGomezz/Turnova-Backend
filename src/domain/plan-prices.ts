@@ -1,4 +1,5 @@
 import { SubscriptionPlan } from "./entities/Subscription";
+import type { BillingCycle } from "./entities/Subscription";
 
 /** Período de prueba en días — fuente única de verdad */
 export const TRIAL_DAYS = 14;
@@ -37,17 +38,34 @@ export const PLAN_NAMES_ANNUAL: Record<SubscriptionPlan, string> = {
 /** @deprecated Usar PLAN_NAMES_MONTHLY */
 export const PLAN_NAMES = PLAN_NAMES_MONTHLY;
 
-export type BillingCycle = "monthly" | "annual";
+// export function getPlanPrice(plan: SubscriptionPlan, cycle: BillingCycle): number {
+//   return cycle === "annual" ? PLAN_PRICES_ANNUAL[plan] : PLAN_PRICES_MONTHLY[plan];
+// }
 
-export function getPlanPrice(plan: SubscriptionPlan, cycle: BillingCycle): number {
-  return cycle === "annual" ? PLAN_PRICES_ANNUAL[plan] : PLAN_PRICES_MONTHLY[plan];
-}
-
-export function getPlanName(plan: SubscriptionPlan, cycle: BillingCycle): string {
-  return cycle === "annual" ? PLAN_NAMES_ANNUAL[plan] : PLAN_NAMES_MONTHLY[plan];
-}
+// export function getPlanName(plan: SubscriptionPlan, cycle: BillingCycle): string {
+//   return cycle === "annual" ? PLAN_NAMES_ANNUAL[plan] : PLAN_NAMES_MONTHLY[plan];
+// }
 
 /** Ahorro anual vs pagar 12 meses por separado */
 export function annualSavings(plan: SubscriptionPlan): number {
   return PLAN_PRICES_MONTHLY[plan] * 12 - PLAN_PRICES_ANNUAL[plan];
+}
+
+/** Nombres de plan — daily (solo sandbox) */
+export const PLAN_NAMES_DAILY: Record<SubscriptionPlan, string> = {
+  starter:  "Kronu Starter Diario (TEST)",
+  pro:      "Kronu Pro Diario (TEST)",
+  business: "Kronu Business Diario (TEST)",
+};
+
+export function getPlanName(plan: SubscriptionPlan, cycle: BillingCycle): string {
+  if (cycle === "annual") return PLAN_NAMES_ANNUAL[plan];
+  if (cycle === "daily")  return PLAN_NAMES_DAILY[plan];
+  return PLAN_NAMES_MONTHLY[plan];
+}
+
+export function getPlanPrice(plan: SubscriptionPlan, cycle: BillingCycle): number {
+  if (cycle === "annual") return PLAN_PRICES_ANNUAL[plan];
+  if (cycle === "daily")  return PLAN_PRICES_MONTHLY[plan]; // mismo precio, distinta frecuencia
+  return PLAN_PRICES_MONTHLY[plan];
 }

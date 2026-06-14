@@ -90,10 +90,8 @@ function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
 /** Parámetros de frecuencia según ciclo de facturación */
 const FREQUENCY_PARAMS: Record<BillingCycle, { type: string; value: number }> = {
   monthly: { type: "MONTHLY", value: 1 },
-  // dLocal Go representa anual como 12 meses de frecuencia mensual
-  // con un único cargo (o se puede usar YEARLY si el plan lo soporta).
-  // Ajustar según documentación actualizada de dLocal Go para UY.
   annual:  { type: "MONTHLY", value: 12 },
+  daily:   { type: "DAILY",   value: 1 },   // ← nuevo
 };
 
 function getBaseUrl(): string {
@@ -162,6 +160,9 @@ export const dlocalGoClient: IPaymentProvider = {
     errorUrl: string,
     cycle: BillingCycle = "monthly",
   ): Promise<CreateCheckoutResult> {
+     if (cycle === "daily" && process.env.DLOCAL_SANDBOX !== "true") {
+    throw new Error("El plan diario solo está disponible en modo sandbox.");
+  }
     const base = getBaseUrl();
     const auth = getAuthHeader();
     const amount   = getPlanPrice(plan, cycle);

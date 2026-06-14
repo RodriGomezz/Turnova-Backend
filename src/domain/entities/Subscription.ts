@@ -9,7 +9,7 @@ export type SubscriptionStatus =
 export type SubscriptionPlan = "starter" | "pro" | "business";
 
 /** monthly = cobro recurrente mensual | annual = un cobro único por 12 meses */
-export type BillingCycle = "monthly" | "annual";
+export type BillingCycle = "monthly" | "annual"| "daily";
 
 export interface Subscription {
   id: string;
