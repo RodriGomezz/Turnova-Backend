@@ -45,7 +45,7 @@ export class SubscriptionRepository implements ISubscriptionRepository {
       .from(this.table).select("*")
       .eq("business_id", businessId)
       .or(
-        `status.in.(active,past_due,grace_period),and(status.eq.canceled,current_period_end.gt.${now})`,
+        `status.in.(active,past_due,grace_period,expired),and(status.eq.canceled,current_period_end.gt.${now})`,
       )
       .order("created_at", { ascending: false })
       .limit(1).single();

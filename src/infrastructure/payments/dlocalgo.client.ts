@@ -366,7 +366,10 @@ export const dlocalGoClient: IPaymentProvider = {
 
     const normalizedEmail = email.trim().toLowerCase();
     const candidates = data.data
-      .filter((sub) => (sub.client_email ?? "").trim().toLowerCase() === normalizedEmail)
+      .filter((sub) =>
+        (sub.client_email ?? "").trim().toLowerCase() === normalizedEmail &&
+        sub.active === true,   // ignorar suscripciones canceladas/desactivadas
+      )
       .sort((a, b) => {
         const aTime = a.created_at ? Date.parse(a.created_at) : 0;
         const bTime = b.created_at ? Date.parse(b.created_at) : 0;
