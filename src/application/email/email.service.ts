@@ -18,7 +18,7 @@ export class EmailService implements IEmailService {
     await resend.emails.send({
       from: EMAIL_FROM,
       to: data.to,
-      subject: `✓ Turno confirmado en ${data.negocioNombre} — ${data.horaInicio}`,
+      subject: `✓ Turno confirmado en ${data.negocioNombre} - ${data.horaInicio}`,
       html: bookingConfirmationTemplate(data),
     });
     logger.info("Email de confirmación enviado", {
