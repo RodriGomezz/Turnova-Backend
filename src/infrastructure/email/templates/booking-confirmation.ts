@@ -14,7 +14,7 @@ export function bookingConfirmationTemplate(data: BookingConfirmationData): stri
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
 
-  const cancelUrl = `${process.env.FRONTEND_URL ?? 'http://localhost:4200'}/${data.slug}/cancelar/${data.cancellationToken}`;
+  const cancelUrl = `${data.slug}.${process.env.FRONTEND_URL}/cancelar/${data.cancellationToken}`;
 
   return `
 <!DOCTYPE html>
