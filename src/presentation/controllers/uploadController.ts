@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { supabase }          from "../../infrastructure/database/supabase.client";
 import { BarberRepository }  from "../../infrastructure/database/BarberRepository";
+import { BusinessRepository } from "../../infrastructure/database/BusinessRepository";
+import { Business } from "../../domain/entities/Business";
 import { ForbiddenError, NotFoundError, ValidationError } from "../../domain/errors";
 import { logger } from "../../infrastructure/logger";
 
@@ -22,10 +24,72 @@ const MIME_TO_EXT: Record<string, string> = {
   "image/webp": "webp",
 };
 
+// CACHE-BUSTING: antes el path era fijo (ej: `barbers/${barberId}.${ext}`) y se
+// sobreescribía con upsert:true en cada subida. Eso significa que la URL pública
+// nunca cambiaba, así que navegadores y cualquier CDN delante de Supabase seguían
+// sirviendo la imagen vieja desde caché hasta que expiraba (o el usuario la
+// limpiaba a mano) — aunque el archivo en el bucket ya fuera otro.
+//
+// Ahora cada subida genera un nombre único (`${id}-${timestamp}.${ext}`). La URL
+// pública cambia siempre que la imagen cambia, así que:
+//   - Cache-Control puede ser "immutable" sin riesgo: el path nunca se reusa.
+//   - No hace falta ningún cache-busting del lado del frontend.
+// El archivo anterior (si existía) se borra después de confirmar que la
+// subida nueva fue exitosa, para no dejar basura acumulándose en el bucket.
+
+const PHOTOS_BUCKET_PUBLIC_PREFIX = "/storage/v1/object/public/photos/";
+
+// Extrae el path dentro del bucket "photos" a partir de una URL pública de
+// Supabase Storage. Devuelve null si la URL no tiene el formato esperado
+// (defensivo: nunca debería romper un upload por un dato viejo/inesperado).
+function extractStoragePath(publicUrl: string | null | undefined): string | null {
+  if (!publicUrl) return null;
+  const idx = publicUrl.indexOf(PHOTOS_BUCKET_PUBLIC_PREFIX);
+  if (idx === -1) return null;
+  return publicUrl.slice(idx + PHOTOS_BUCKET_PUBLIC_PREFIX.length);
+}
+
+// Cache-Control para archivos con nombre único: un año + immutable.
+// Es seguro porque ese path exacto nunca se va a reescribir.
+const IMMUTABLE_CACHE_CONTROL = "31536000";
+
 // ── Instancia de repositorio (igual que DomainController) ─────────────────────
 // uploadController es un objeto literal sin DI formal; instanciar el repo aquí
 // es consistente con el patrón de DomainController.
-const barberRepository = new BarberRepository();
+const barberRepository   = new BarberRepository();
+const businessRepository = new BusinessRepository();
+
+// Mapea un AssetType a su URL actual en el negocio y al nombre de columna
+// correspondiente para poder leer/escribir el campo correcto:
+//   - "logo"       → business.logo_url
+//   - "hero"       → business.hero_imagen_url
+//   - "gallery-N"  → business.fotos_galeria[N]
+function getAssetCurrentUrl(business: Business, type: AssetType): string | null {
+  if (type === "logo") return business.logo_url ?? null;
+  if (type === "hero") return business.hero_imagen_url ?? null;
+  const galleryIndex = Number(type.replace("gallery-", ""));
+  return business.fotos_galeria?.[galleryIndex] ?? null;
+}
+
+// Construye el Partial<Business> a aplicar con businessRepository.update()
+// para guardar la nueva URL en la columna correcta según el type.
+// NOTA: este controller, igual que el original, solo sube el archivo y
+// devuelve la URL — no escribe en la tabla `businesses` (eso lo hace el
+// frontend con un PATCH separado, como en barbers.ts). Esta función queda
+// disponible por si en algún momento se decide mover esa escritura al
+// backend; hoy no se invoca dentro de uploadBusinessAsset.
+function buildAssetUpdatePatch(
+  business: Business,
+  type: AssetType,
+  newUrl: string,
+): Partial<Business> {
+  if (type === "logo") return { logo_url: newUrl };
+  if (type === "hero") return { hero_imagen_url: newUrl };
+  const galleryIndex = Number(type.replace("gallery-", ""));
+  const fotos = [...(business.fotos_galeria ?? [])];
+  fotos[galleryIndex] = newUrl;
+  return { fotos_galeria: fotos };
+}
 
 export const uploadController = {
 
@@ -50,16 +114,43 @@ export const uploadController = {
       throw new ForbiddenError();
     }
 
-    const ext  = MIME_TO_EXT[file.mimetype];
-    const path = `barbers/${barberId}.${ext}`;
+    const ext = MIME_TO_EXT[file.mimetype];
+
+    // Path único por subida — ver nota de CACHE-BUSTING arriba.
+    const path = `barbers/${barberId}-${Date.now()}.${ext}`;
+
+    // Path del archivo anterior (si existía), para borrarlo después de que
+    // la subida nueva se confirme. Se calcula ANTES de subir porque depende
+    // de la foto_url actual del barbero, todavía no actualizada.
+    const previousPath = extractStoragePath(barber.foto_url);
 
     const { error } = await supabase.storage
       .from("photos")
-      .upload(path, file.buffer, { contentType: file.mimetype, upsert: true });
+      .upload(path, file.buffer, {
+        contentType: file.mimetype,
+        cacheControl: IMMUTABLE_CACHE_CONTROL,
+        // upsert ya no es necesario: el path es nuevo en cada subida y nunca
+        // colisiona con uno existente. Se deja en false explícito para que
+        // un eventual path duplicado falle de forma ruidosa en vez de
+        // sobreescribir silenciosamente.
+        upsert: false,
+      });
 
     if (error) {
       res.status(500).json({ error: "Error al subir la imagen" });
       return;
+    }
+
+    // Limpieza del archivo anterior — best effort. Si falla, no rompemos la
+    // respuesta: la foto nueva ya está subida y servible, solo queda un
+    // archivo huérfano en el bucket que se puede limpiar con un job aparte.
+    if (previousPath && previousPath !== path) {
+      const { error: removeError } = await supabase.storage.from("photos").remove([previousPath]);
+      if (removeError) {
+        logger.warn("No se pudo borrar la foto anterior del barbero (huérfana en bucket)", {
+          businessId: req.businessId, barberId, previousPath, error: removeError.message,
+        });
+      }
     }
 
     const { data: urlData } = supabase.storage.from("photos").getPublicUrl(path);
@@ -82,15 +173,23 @@ export const uploadController = {
       throw new ForbiddenError();
     }
 
-    const paths = Object.values(MIME_TO_EXT).map((ext) => `barbers/${barberId}.${ext}`);
-    const { error } = await supabase.storage.from("photos").remove(paths);
+    // Con nombres únicos ya no podemos adivinar el path por extensión —
+    // hay que leerlo de la foto_url actual guardada en la base de datos.
+    const currentPath = extractStoragePath(barber.foto_url);
+    if (!currentPath) {
+      // No había foto guardada (o la URL no tiene el formato esperado): nada que borrar.
+      res.json({ message: "Imagen eliminada" });
+      return;
+    }
+
+    const { error } = await supabase.storage.from("photos").remove([currentPath]);
 
     if (error) {
       res.status(500).json({ error: "Error al eliminar la imagen" });
       return;
     }
 
-    logger.info("Foto de barbero eliminada", { businessId: req.businessId, barberId });
+    logger.info("Foto de barbero eliminada", { businessId: req.businessId, barberId, path: currentPath });
     res.json({ message: "Imagen eliminada" });
   },
 
@@ -121,16 +220,39 @@ export const uploadController = {
       );
     }
 
-    const ext  = MIME_TO_EXT[file.mimetype];
-    const path = `business/${req.businessId!}/${type}.${ext}`;
+    const ext = MIME_TO_EXT[file.mimetype];
+
+    // Path único por subida — ver nota de CACHE-BUSTING arriba.
+    const path = `business/${req.businessId!}/${type}-${Date.now()}.${ext}`;
+
+    // Path del asset anterior (si existía), para borrarlo después de que la
+    // subida nueva se confirme. type ya pasó por isAllowedAssetType arriba,
+    // así que el cast a AssetType es seguro acá.
+    const business = await businessRepository.findById(req.businessId!);
+    const previousUrl  = business ? getAssetCurrentUrl(business, type as AssetType) : null;
+    const previousPath = extractStoragePath(previousUrl);
 
     const { error } = await supabase.storage
       .from("photos")
-      .upload(path, file.buffer, { contentType: file.mimetype, upsert: true });
+      .upload(path, file.buffer, {
+        contentType: file.mimetype,
+        cacheControl: IMMUTABLE_CACHE_CONTROL,
+        upsert: false,
+      });
 
     if (error) {
       res.status(500).json({ error: "Error al subir la imagen" });
       return;
+    }
+
+    // Limpieza del archivo anterior — best effort, igual que en barberPhoto.
+    if (previousPath && previousPath !== path) {
+      const { error: removeError } = await supabase.storage.from("photos").remove([previousPath]);
+      if (removeError) {
+        logger.warn("No se pudo borrar el asset anterior del negocio (huérfano en bucket)", {
+          businessId: req.businessId, type, previousPath, error: removeError.message,
+        });
+      }
     }
 
     const { data: urlData } = supabase.storage.from("photos").getPublicUrl(path);
@@ -159,17 +281,28 @@ export const uploadController = {
       );
     }
 
-    const paths = Object.values(MIME_TO_EXT).map(
-      (ext) => `business/${req.businessId!}/${type}.${ext}`,
-    );
-    const { error } = await supabase.storage.from("photos").remove(paths);
+    // Con nombres únicos ya no podemos adivinar el path por extensión —
+    // hay que leerlo de la URL actual guardada en la base de datos.
+    const business = await businessRepository.findById(req.businessId!);
+    if (!business) throw new NotFoundError("Negocio");
+
+    const currentUrl  = getAssetCurrentUrl(business, type);
+    const currentPath = extractStoragePath(currentUrl);
+
+    if (!currentPath) {
+      // No había asset guardado para ese type: nada que borrar.
+      res.json({ message: "Imagen eliminada" });
+      return;
+    }
+
+    const { error } = await supabase.storage.from("photos").remove([currentPath]);
 
     if (error) {
       res.status(500).json({ error: "Error al eliminar la imagen" });
       return;
     }
 
-    logger.info("Asset de negocio eliminado", { businessId: req.businessId, type });
+    logger.info("Asset de negocio eliminado", { businessId: req.businessId, type, path: currentPath });
     res.json({ message: "Imagen eliminada" });
   },
 };

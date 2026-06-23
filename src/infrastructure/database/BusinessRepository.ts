@@ -59,6 +59,47 @@ export class BusinessRepository implements IBusinessRepository {
     return data as Business;
   }
 
+  /**
+   * Hostnames de todos los dominios propios verificados.
+   * Usado por el server SSR para construir allowedHosts dinámico —
+   * sin esto, Angular bloquea por SSRF cualquier dominio custom no
+   * listado de antemano (angular.json solo cubre *.kronu.pro).
+   * Sin datos sensibles: son los mismos hostnames que cualquiera ve
+   * visitando el sitio del negocio.
+   */
+  async findAllVerifiedDomains(): Promise<string[]> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("custom_domain")
+      .eq("domain_verified", true)
+      .not("custom_domain", "is", null);
+
+    if (error) throw new AppError(error.message, 500);
+    return (data ?? [])
+      .map((row) => row.custom_domain as string | null)
+      .filter((domain): domain is string => !!domain);
+  }
+
+  /**
+   * Slugs de negocios activos para el sitemap dinámico (kronu.pro/sitemap.xml
+   * y el sitemap propio de cada negocio). Solo `activo = true` — un negocio
+   * pausado no debería seguir indexado mientras esté desactivado.
+   * Sin datos sensibles: slug y created_at son públicos (la URL del negocio
+   * ya expone el slug).
+   */
+  async findAllActiveSlugs(): Promise<{ slug: string; createdAt: string }[]> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("slug, created_at")
+      .eq("activo", true);
+
+    if (error) throw new AppError(error.message, 500);
+    return (data ?? []).map((row) => ({
+      slug: row.slug as string,
+      createdAt: row.created_at as string,
+    }));
+  }
+
   async create(
     data: Omit<Business, "id" | "created_at" | "domain_verified" | "domain_verified_at" | "domain_added_at" | "onboarding_completed">,
   ): Promise<Business> {

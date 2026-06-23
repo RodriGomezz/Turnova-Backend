@@ -8,8 +8,10 @@ import { supabase } from "../../infrastructure/database/supabase.client";
 import { businessController as controller } from "../../container";
 import { publicLimiter } from "../middlewares/rateLimiter.middleware";
 import { isSlugAvailable } from "../../infrastructure/cache/slug.cache";
+import { BusinessRepository } from "../../infrastructure/database/BusinessRepository";
 
 const router: Router = Router();
+const businessRepository = new BusinessRepository();
 
 // ── Verificación de slug — pública, sin auth ──────────────────────────────────
 // Rate-limited (publicLimiter: 120 req/min) para prevenir enumeración masiva.
@@ -35,6 +37,45 @@ router.get(
 
       const available = await isSlugAvailable(slug);
       res.json({ slug, available });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── Dominios verificados — pública, sin auth ──────────────────────────────────
+// Consumida por el server SSR (server.ts) para construir allowedHosts dinámico.
+// Refrescada periódicamente en memoria del proceso Node — no en cada request.
+//
+// SEC: Sin datos sensibles. Son los mismos hostnames que cualquiera ve
+// visitando el sitio del negocio (ej. mibarberia.com). Rate-limited igual
+// que slug-check porque es público y sin auth.
+router.get(
+  "/public/verified-domains",
+  publicLimiter,
+  async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const domains = await businessRepository.findAllVerifiedDomains();
+      res.json({ domains });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── Slugs activos — pública, sin auth ──────────────────────────────────────────
+// Consumida por el server SSR para generar /sitemap.xml dinámicamente
+// (tanto el sitemap del dominio raíz como el de cada negocio individual).
+//
+// SEC: Sin datos sensibles. El slug ya es público (es la URL del negocio:
+// slug.kronu.pro), y created_at solo se usa como lastmod del sitemap.
+router.get(
+  "/public/active-slugs",
+  publicLimiter,
+  async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const businesses = await businessRepository.findAllActiveSlugs();
+      res.json({ businesses });
     } catch (err) {
       next(err);
     }
