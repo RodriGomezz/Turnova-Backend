@@ -2,6 +2,7 @@ import { Router } from "express";
 import { scheduleController } from "../../container";
 import { validate } from "../middlewares/validate.middleware";
 import { authMiddleware } from "../middlewares/auth.middleware";
+import { noCache } from "../middlewares/no-cache.middleware";
 import {
   createScheduleSchema,
   updateScheduleSchema,
@@ -14,7 +15,7 @@ const router: Router = Router();
 router.use(authMiddleware);
 
 // ── Horarios ──────────────────────────────────────────────────────────────
-router.get("/", scheduleController.listSchedules);
+router.get("/", noCache, scheduleController.listSchedules);
 router.post(
   "/",
   invalidatePublicCache,
@@ -30,7 +31,7 @@ router.put(
 router.delete("/:id", invalidatePublicCache, scheduleController.deleteSchedule);
 
 // ── Fechas bloqueadas ─────────────────────────────────────────────────────
-router.get("/blocked", scheduleController.listBlockedDates);
+router.get("/blocked", noCache, scheduleController.listBlockedDates);
 router.post(
   "/blocked",
   invalidatePublicCache,

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { validate } from "../middlewares/validate.middleware";
 import { authMiddleware } from "../middlewares/auth.middleware";
+import { noCache } from "../middlewares/no-cache.middleware";
 import { bookingLimiter, slotLimiter } from "../middlewares/rateLimiter.middleware";
 import { createBookingSchema } from "../schemas/booking.schema";
 import { supabase } from "../../infrastructure/database/supabase.client";
@@ -14,7 +15,7 @@ import { bookingController as controller } from '../../container';
 const router: Router = Router();
 
 // ── Panel del dueño (protegidas) ──────────────────────────────
-router.get("/panel", authMiddleware, controller.listByDate);
+router.get("/panel", authMiddleware, noCache, controller.listByDate);
 router.post(
   "/panel",
   authMiddleware,
@@ -24,11 +25,11 @@ router.post(
 router.patch("/panel/:id/estado",  authMiddleware, controller.updateEstado);
 router.patch("/panel/:id/modify",  authMiddleware, controller.modifyBooking);
 router.patch("/panel/:id/cancel",  authMiddleware, controller.cancelBooking);
-router.get("/panel/month", authMiddleware, controller.getMonthSummary);
+router.get("/panel/month", authMiddleware, noCache, controller.getMonthSummary);
 // Agregar junto a las rutas del panel
-router.get('/panel/month-full', authMiddleware, controller.getMonthFull);
+router.get('/panel/month-full', authMiddleware, noCache, controller.getMonthFull);
 // Junto a las otras rutas del panel
-router.get('/panel/day-summary', authMiddleware, controller.getDaySummary);
+router.get('/panel/day-summary', authMiddleware, noCache, controller.getDaySummary);
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const PUBLIC_SELECT = [

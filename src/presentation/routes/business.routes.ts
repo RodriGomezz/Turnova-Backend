@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { authMiddleware } from "../middlewares/auth.middleware";
+import { noCache } from "../middlewares/no-cache.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { updateBusinessSchema } from "../schemas/business.schema";
 import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
@@ -111,15 +112,15 @@ const businessPlanGuard = async (
 
 router.use(authMiddleware);
 
-router.get("/", controller.get);
-router.get("/all", controller.listUserBusinesses);
+router.get("/", noCache, controller.get);
+router.get("/all", noCache, controller.listUserBusinesses);
 router.put(
   "/",
   invalidatePublicCache,
   validate(updateBusinessSchema),
   controller.update,
 );
-router.get("/status", controller.getStatus);
+router.get("/status", noCache, controller.getStatus);
 router.patch("/onboarding", controller.completeOnboarding);
 router.patch("/switch", businessPlanGuard, controller.switchBusiness);
 router.patch("/:id/deactivate", controller.deactivate);

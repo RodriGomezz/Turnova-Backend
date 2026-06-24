@@ -2,6 +2,7 @@ import { Router } from "express";
 import { subscriptionController, webhookController } from "../../container";
 import { validate }        from "../middlewares/validate.middleware";
 import { authMiddleware }  from "../middlewares/auth.middleware";
+import { noCache }         from "../middlewares/no-cache.middleware";
 import { publicLimiter }   from "../middlewares/rateLimiter.middleware";
 import {
   createSubscriptionSchema,
@@ -17,8 +18,8 @@ router.get("/confirm-stream", subscriptionController.confirmStream);
 
 // ── Panel — protegidas con authMiddleware ─────────────────────────────────────
 router.use(authMiddleware);
-router.get("/",        subscriptionController.get);
-router.get("/history", subscriptionController.getHistory);
+router.get("/",        noCache, subscriptionController.get);
+router.get("/history", noCache, subscriptionController.getHistory);
 router.post("/sse-token", subscriptionController.issueSseToken);
 
 router.post("/create",    validate(createSubscriptionSchema), subscriptionController.create);
