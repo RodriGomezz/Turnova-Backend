@@ -215,6 +215,10 @@ export class BookingController {
       if (!service) throw new NotFoundError("Servicio");
       if (service.business_id !== business.id) throw new ForbiddenError();
 
+      const barber = await this.barberRepository.findById(barberId);
+      if (!barber) throw new NotFoundError("Barbero");
+      if (barber.business_id !== business.id) throw new ForbiddenError();
+
       // No exponer slots de negocios que no aceptan reservas
       const slotStatus = getBusinessStatus(business);
       if (slotStatus === "trial_expired" || slotStatus === "paused" || slotStatus === "subscription_expired") {
@@ -272,6 +276,7 @@ export class BookingController {
 
       const barber = await this.barberRepository.findById(input.barber_id);
       if (!barber) throw new NotFoundError("Barbero");
+      if (barber.business_id !== business.id) throw new ForbiddenError();
 
       // Bloquear reservas si el negocio está pausado o su trial venció sin suscripción activa
       const businessStatus = getBusinessStatus(business);

@@ -41,7 +41,9 @@ export class BookingRepository implements IBookingRepository {
       )
       .eq("business_id", businessId)
       .eq("fecha", fecha)
-      .neq("estado", "cancelada")
+      // Se incluyen canceladas a propósito: el panel diario las muestra
+      // tachadas/con badge en vez de ocultarlas. Para disponibilidad de
+      // slots usar findByBarberAndDate, que sí filtra canceladas.
       .order("hora_inicio", { ascending: true });
 
     if (error) throw new AppError(error.message, 500);
@@ -125,9 +127,11 @@ export class BookingRepository implements IBookingRepository {
       .select()
       .single();
 
-    // 23505 = unique_violation — dos requests simultáneos pasaron la
+    // 23P01 = exclusion_violation — dispara el EXCLUDE USING gist
+    // (bookings_no_overlap) cuando dos requests simultáneos pasaron la
     // verificación de disponibilidad y uno perdió la race condition.
-    if (error?.code === "23505") {
+    // 23505 también se chequea por si el constraint cambia a unique en el futuro.
+    if (error?.code === "23P01" || error?.code === "23505") {
       throw new ConflictError("El horario seleccionado ya no está disponible");
     }
     if (error) throw new AppError(error.message, 500);
@@ -135,9 +139,17 @@ export class BookingRepository implements IBookingRepository {
   }
 
   async updateEstado(id: string, estado: BookingEstado): Promise<Booking> {
+    // Si se cancela desde el panel, registrar cancelled_at igual que cancelByToken
+    // (mismo criterio de auditoría). Si se revierte a pendiente/confirmada,
+    // limpiar cancelled_at para no dejar un estado inconsistente.
+    const extra =
+      estado === "cancelada"
+        ? { cancelled_at: new Date().toISOString() }
+        : { cancelled_at: null, cancel_reason: null };
+
     const { data: updated, error } = await supabase
       .from(this.table)
-      .update({ estado })
+      .update({ estado, ...extra })
       .eq("id", id)
       .select()
       .single();
@@ -168,7 +180,7 @@ export class BookingRepository implements IBookingRepository {
         "*, barbers(nombre), services(nombre, duracion_minutos, precio, precio_hasta)",
       )
       .eq("business_id", businessId)
-      .neq("estado", "cancelada")
+      // Se incluyen canceladas a propósito: ver nota en findByBusinessAndDate.
       .gte("fecha", from)
       .lte("fecha", to)
       .order("fecha",       { ascending: true })
@@ -266,7 +278,7 @@ export class BookingRepository implements IBookingRepository {
       .select()
       .single();
 
-    if (error?.code === "23505") {
+    if (error?.code === "23P01" || error?.code === "23505") {
       throw new ConflictError("El horario seleccionado ya está ocupado");
     }
     if (error) throw new AppError(error.message, 500);
