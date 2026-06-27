@@ -1,8 +1,10 @@
 import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
 import { IScheduleRepository } from "../../domain/interfaces/IScheduleRepository";
 import { IBlockedDateRepository } from "../../domain/interfaces/IBlockedDateRepository";
+import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
 import { Booking } from "../../domain/entities/Booking";
-import { AppError, NotFoundError, ConflictError } from "../../domain/errors";
+import { Service } from "../../domain/entities/Service";
+import { AppError, NotFoundError, ConflictError, ForbiddenError } from "../../domain/errors";
 import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
 import { logger } from "../../infrastructure/logger";
 
@@ -13,7 +15,18 @@ export interface ModifyBookingInput {
   horaInicio: string;
   horaFin:    string;
   barberId?:  string;
+  /** @deprecated Usar serviceIds — se mantiene mientras el panel viejo lo siga mandando. */
   serviceId?: string;
+  /**
+   * Si se pasa, reemplaza el combo completo de servicios de la reserva
+   * (no solo cambia fecha/hora/barbero). horaFin se recalcula a partir de
+   * la suma de duraciones de estos servicios — el horaFin recibido en el
+   * input se ignora en ese caso. Solo válido si la reserva todavía no
+   * empezó (mismas reglas de fecha que el resto de este use case); para
+   * agregar un servicio a una reserva en curso o ya pasada, usar
+   * AddBookingItemUseCase en su lugar.
+   */
+  serviceIds?: string[];
 }
 
 export class ModifyBookingUseCase {
@@ -21,6 +34,7 @@ export class ModifyBookingUseCase {
     private readonly bookingRepository: IBookingRepository,
     private readonly scheduleRepository: IScheduleRepository,
     private readonly blockedDateRepository: IBlockedDateRepository,
+    private readonly serviceRepository: IServiceRepository,
   ) {}
 
   async execute(input: ModifyBookingInput): Promise<Booking> {
@@ -39,6 +53,25 @@ export class ModifyBookingUseCase {
     }
 
     const targetBarberId = input.barberId ?? booking.barber_id;
+
+    // Si se reemplaza el combo de servicios, la duración total (y por lo
+    // tanto hora_fin) depende de los nuevos servicios, no del horaFin que
+    // vino en el input — se recalcula acá, antes de verificar colisión,
+    // para que la verificación use el rango de tiempo real que va a ocupar.
+    let nuevosServicios: Service[] = [];
+    let horaFinEfectiva = input.horaFin;
+
+    if (input.serviceIds?.length) {
+      nuevosServicios = await this.serviceRepository.findByIds(input.serviceIds);
+      if (nuevosServicios.length !== input.serviceIds.length) {
+        throw new NotFoundError("Servicio");
+      }
+      if (nuevosServicios.some((s) => s.business_id !== input.businessId)) {
+        throw new ForbiddenError();
+      }
+      const duracionTotal = nuevosServicios.reduce((sum, s) => sum + s.duracion_minutos, 0);
+      horaFinEfectiva = this.sumarMinutos(input.horaInicio, duracionTotal);
+    }
 
     // Parsear como fecha local para evitar el bug de timezone UTC.
     // new Date("2025-01-15") se interpreta como UTC midnight y en TZ=America/Montevideo
@@ -63,7 +96,7 @@ export class ModifyBookingUseCase {
     if (!schedule)  throw new AppError("No hay horario configurado para ese día", 400);
 
     const startMin = this.toMin(input.horaInicio);
-    const endMin   = this.toMin(input.horaFin);
+    const endMin   = this.toMin(horaFinEfectiva);
 
     // Verificar colisión — excluir la misma reserva que se está modificando
     const collision = existingBookings.some((b) => {
@@ -78,12 +111,49 @@ export class ModifyBookingUseCase {
       throw new ConflictError("El horario seleccionado ya está ocupado");
     }
 
+    // Si se reemplaza el combo, replaceItems hace DELETE+INSERT de
+    // booking_items y UPDATE de hora_fin en una sola transacción — el
+    // constraint bookings_no_overlap se evalúa ahí mismo como red de
+    // seguridad final, aunque ya verificamos colisión arriba en código.
+    if (nuevosServicios.length > 0) {
+      await this.bookingRepository.replaceItems(
+        input.bookingId,
+        horaFinEfectiva,
+        nuevosServicios.map((s) => ({
+          service_id: s.id,
+          nombre: s.nombre,
+          precio: s.precio,
+          duracion_minutos: s.duracion_minutos,
+        })),
+      );
+    }
+
+    // booking.service_id es opcional/deprecado desde que las reservas
+    // multi-servicio guardan sus servicios en booking_items en vez de en
+    // esta columna (ver Booking.ts). Mientras el modelo viejo siga
+    // existiendo en paralelo (Fase 3-5 del plan de migración), modify()
+    // todavía requiere service_id como string — si la reserva no lo tiene
+    // (fue creada vía createWithItems), se usa el primer servicio de sus
+    // booking_items (ya actualizados arriba, si correspondía) como
+    // equivalente. Esto solo afecta a esta columna legacy: no vuelve a
+    // tocar los booking_items reales de la reserva.
+    const fallbackServiceId = nuevosServicios[0]?.id
+      ?? booking.service_id
+      ?? (await this.bookingRepository.findItemsByBookingId(booking.id))[0]?.service_id;
+
+    if (!fallbackServiceId) {
+      throw new AppError(
+        "No se pudo determinar el servicio de la reserva para modificarla",
+        500,
+      );
+    }
+
     const updated = await this.bookingRepository.modify(input.bookingId, {
       fecha:       input.fecha,
       hora_inicio: input.horaInicio,
-      hora_fin:    input.horaFin,
+      hora_fin:    horaFinEfectiva,
       barber_id:   targetBarberId,
-      service_id:  input.serviceId ?? booking.service_id,
+      service_id:  input.serviceId ?? fallbackServiceId,
       estado:      booking.estado === "confirmada" ? "confirmada" : "pendiente",
       modified_at: new Date().toISOString(),
     });
@@ -98,9 +168,18 @@ export class ModifyBookingUseCase {
       horaAnterior:  booking.hora_inicio,
       horaNueva:     input.horaInicio,
       barberId:      targetBarberId,
+      serviciosReemplazados: nuevosServicios.length > 0,
     });
 
     return updated;
+  }
+
+  private sumarMinutos(hora: string, minutos: number): string {
+    const [h, m] = hora.split(":").map(Number);
+    const total = h * 60 + m + minutos;
+    const hh = Math.floor(total / 60) % 24;
+    const mm = total % 60;
+    return `${hh.toString().padStart(2, "0")}:${mm.toString().padStart(2, "0")}`;
   }
 
   private toMin(time: string): number {

@@ -126,3 +126,32 @@ test("getBusinessStatus returns active after reactivation", () => {
   };
   assert.equal(getBusinessStatus(reactivated as any), "active");
 });
+
+// ── Regresión: bug de PUBLIC_SELECT incompleto ──────────────────────────────
+//
+// El endpoint público (GET /bookings/public/:slug) construye el objeto que le
+// pasa a getBusinessStatus a partir de una lista manual de columnas
+// (PUBLIC_SELECT en booking.routes.ts). Si esa lista alguna vez vuelve a
+// omitir `subscription_downgraded_at`, una sucursal principal con plan
+// Business/Pro vencido queda en "active" en su página pública aunque ya no
+// pueda recibir reservas — sin fechas disponibles y sin el banner de aviso.
+// Este test reproduce ese objeto incompleto para que la regresión sea visible
+// en CI antes de llegar a producción.
+test("getBusinessStatus regression: business downgraded but subscription_downgraded_at missing from select falls through to active (bug)", () => {
+  const incompleteSelect = {
+    plan: "starter",
+    trial_ends_at: null,
+    activo: true,
+    // subscription_downgraded_at deliberadamente omitido, como en el SELECT roto
+  };
+  assert.equal(getBusinessStatus(incompleteSelect as any), "active");
+});
+
+test("getBusinessStatus: sucursal hija desactivada (activo: false) siempre devuelve paused, sin depender de plan ni de subscription_downgraded_at", () => {
+  const deactivatedChildBranch = {
+    plan: "starter",
+    trial_ends_at: null,
+    activo: false,
+  };
+  assert.equal(getBusinessStatus(deactivatedChildBranch as any), "paused");
+});

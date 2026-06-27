@@ -32,6 +32,12 @@ export class CreateServiceUseCase {
       duracion_minutos: input.duracion_minutos,
       precio: input.precio,
       precio_hasta: input.precio_hasta ?? null,
+      // Los servicios creados desde este flujo (panel del dueño) nunca son
+      // el genérico del negocio — ese se crea una sola vez automáticamente
+      // (CreateBusinessUseCase) y está protegido por un constraint único en
+      // BD. CreateServiceInput no expone este campo a propósito, para que
+      // nadie pueda crear un segundo "genérico" por error desde la API.
+      es_generico: false,
     });
   }
 }

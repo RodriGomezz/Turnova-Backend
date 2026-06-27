@@ -5,9 +5,10 @@ import { IBarberRepository } from "../../domain/interfaces/IBarberRepository";
 import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository";
 import { NotFoundError } from "../../domain/errors";
 import { Barber } from "../../domain/entities/Barber";
-import { Booking } from "../../domain/entities/Booking";
+import { Booking, BookingItem } from "../../domain/entities/Booking";
 import { Schedule } from "../../domain/entities/Schedule";
 import { BlockedDate } from "../../domain/entities/BlockedDate";
+import { sumPrecioItems, sumDuracionItems } from "../../domain/booking-pricing";
 
 // ── Tipos de salida ──────────────────────────────────────────────────────────
 
@@ -38,15 +39,16 @@ export interface DaySummaryResult {
 
 // ── Tipos internos (sin any) ─────────────────────────────────────────────────
 
-interface BookingWithService extends Booking {
-  services?: {
-    precio: number;
-  } | null;
+interface BookingWithItems extends Booking {
+  booking_items?: BookingItem[] | null;
 }
 
 // ── Use Case ─────────────────────────────────────────────────────────────────
 
 export class GetDaySummaryUseCase {
+  // Slot por defecto para turnos sin booking_items (no debería pasar en
+  // datos nuevos — solo cubre el caso defensivo de una reserva sin items
+  // por un fallo de datos). El cálculo real usa sumDuracionItems(booking).
   private static readonly SLOT_SIZE_MINUTES = 30;
 
   constructor(
@@ -71,7 +73,7 @@ export class GetDaySummaryUseCase {
     ]);
 
     const activos = bookings.filter(
-      (b): b is BookingWithService => b.estado !== "cancelada",
+      (b): b is BookingWithItems => b.estado !== "cancelada",
     );
     const buffer = business.buffer_minutos ?? 0;
 
@@ -86,7 +88,7 @@ export class GetDaySummaryUseCase {
     );
 
     const ingresoDia = activos.reduce(
-      (sum, b) => sum + ((b as BookingWithService).services?.precio ?? 0),
+      (sum, b) => sum + sumPrecioItems(b.booking_items),
       0,
     );
 
@@ -152,6 +154,12 @@ export class GetDaySummaryUseCase {
     return `${h}:${m}`;
   }
 
+  /** Duración real de un booking según sus items; si no tiene items registrados, cae al slot por defecto. */
+  private duracionReal(booking: BookingWithItems): number {
+    const real = sumDuracionItems(booking.booking_items);
+    return real > 0 ? real : GetDaySummaryUseCase.SLOT_SIZE_MINUTES;
+  }
+
   private findScheduleForBarber(
     barberId: string,
     diaSemana: number,
@@ -180,17 +188,25 @@ export class GetDaySummaryUseCase {
     });
   }
 
+  /**
+   * Ocupación real: en vez de contar "turnos vs. slots de 30 min", suma los
+   * minutos efectivamente reservados (duración real de cada booking según
+   * sus items, ya que un combo puede durar más que un slot fijo) contra los
+   * minutos disponibles en el horario del profesional. Antes, un combo de
+   * 90 minutos contaba como "1 turno" igual que un corte de 30 — subestimaba
+   * la ocupación real de la agenda en negocios con servicios largos o combos.
+   */
   private calcularOcupacion(
     barbers: Barber[],
     schedules: Schedule[],
     blockedDates: BlockedDate[],
-    activos: BookingWithService[],
+    activos: BookingWithItems[],
     diaSemana: number,
     fecha: string,
     buffer: number,
   ): { pct: number } {
-    let totalSlots = 0;
-    let ocupados = 0;
+    let minutosDisponibles = 0;
+    let minutosOcupados = 0;
 
     for (const barber of barbers) {
       if (this.isBarberBlocked(barber.id, fecha, blockedDates)) continue;
@@ -200,23 +216,28 @@ export class GetDaySummaryUseCase {
 
       const inicio = this.parseMinutes(schedule.hora_inicio);
       const fin = this.parseMinutes(schedule.hora_fin);
-      const slotSize = GetDaySummaryUseCase.SLOT_SIZE_MINUTES;
 
-      const slotsBarber = Math.floor((fin - inicio) / (slotSize + buffer));
-      const bookingsBarber = activos.filter((b) => b.barber_id === barber.id).length;
+      const bookingsBarber = activos.filter((b) => b.barber_id === barber.id);
+      const minutosReservados = bookingsBarber.reduce(
+        (sum, b) => sum + this.duracionReal(b) + buffer,
+        0,
+      );
 
-      totalSlots += slotsBarber;
-      ocupados += Math.min(bookingsBarber, slotsBarber);
+      minutosDisponibles += Math.max(fin - inicio, 0);
+      // No puede superar el horario disponible del día (turnos que se
+      // extendieron por un agregado in-situ no deben inflar el % por sí solos).
+      minutosOcupados += Math.min(minutosReservados, Math.max(fin - inicio, 0));
     }
 
-    const pct = totalSlots > 0 ? Math.round((ocupados / totalSlots) * 100) : 0;
+    const pct =
+      minutosDisponibles > 0 ? Math.round((minutosOcupados / minutosDisponibles) * 100) : 0;
     return { pct };
   }
 
   private calcularPrimerTurnoLibre(
     barbers: Barber[],
     schedules: Schedule[],
-    activos: BookingWithService[],
+    activos: BookingWithItems[],
     diaSemana: number,
     fecha: string,
     buffer: number,
@@ -236,16 +257,27 @@ export class GetDaySummaryUseCase {
 
       const inicio = this.parseMinutes(schedule.hora_inicio);
       const fin = this.parseMinutes(schedule.hora_fin);
-      const slotSize = GetDaySummaryUseCase.SLOT_SIZE_MINUTES;
 
-      const horasOcupadas = activos
+      // Intervalos [inicio, fin) realmente ocupados por cada booking del
+      // barbero, usando su duración real — no un slot fijo. Así un combo
+      // largo bloquea correctamente todo el rango de minutos que ocupa,
+      // en vez de liberar minutos que en realidad están tomados.
+      const intervalosOcupados = activos
         .filter((b) => b.barber_id === barber.id)
-        .map((b) => b.hora_inicio.slice(0, 5));
+        .map((b) => {
+          const start = this.parseMinutes(b.hora_inicio);
+          return { start, end: start + this.duracionReal(b) };
+        });
 
-      for (let t = inicio; t + slotSize <= fin; t += slotSize + buffer) {
+      const probeStep = 5; // resolución de búsqueda del próximo hueco libre
+      for (let t = inicio; t < fin; t += probeStep) {
         const hora = this.minutesToTime(t);
         if (esHoy && hora <= horaActual) continue;
-        if (!horasOcupadas.includes(hora)) {
+
+        const ocupado = intervalosOcupados.some(
+          (iv) => t >= iv.start && t < iv.end + buffer,
+        );
+        if (!ocupado) {
           if (!primerTurnoLibre || hora < primerTurnoLibre) {
             primerTurnoLibre = hora;
           }
@@ -260,7 +292,7 @@ export class GetDaySummaryUseCase {
   private async calcularClientesNuevos(
     businessId: string,
     fecha: string,
-    activos: BookingWithService[],
+    activos: BookingWithItems[],
   ): Promise<number> {
     const emailsHoy = [...new Set(activos.map((b) => b.cliente_email))];
     const phonesHoy = [...new Set(activos.map((b) => b.cliente_telefono))];
@@ -294,7 +326,7 @@ export class GetDaySummaryUseCase {
     barbers: Barber[],
     schedules: Schedule[],
     blockedDates: BlockedDate[],
-    activos: BookingWithService[],
+    activos: BookingWithItems[],
     diaSemana: number,
     fecha: string,
   ): BarberDaySummary[] {
@@ -306,7 +338,7 @@ export class GetDaySummaryUseCase {
 
       const ingreso = activos
         .filter((b) => b.barber_id === barber.id)
-        .reduce((sum, b) => sum + (b.services?.precio ?? 0), 0);
+        .reduce((sum, b) => sum + sumPrecioItems(b.booking_items), 0);
 
       return {
         id: barber.id,

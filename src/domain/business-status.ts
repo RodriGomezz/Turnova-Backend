@@ -9,8 +9,6 @@ export function getBusinessStatus(business: {
   plan: string;
   trial_ends_at: string | null;
   activo: boolean;
-  subscription_active?: boolean;
-  subscription_ends_at?: string | null;
   subscription_downgraded_at?: string | null;
 }): BusinessStatus {
   if (!business.activo) return "paused";
@@ -26,17 +24,9 @@ export function getBusinessStatus(business: {
     return "trial_expired";
   }
 
-  if (business.subscription_active) {
-    return "active";
-  }
-
-  if (
-    business.subscription_ends_at &&
-    new Date(business.subscription_ends_at) <= now
-  ) {
-    return "subscription_expired";
-  }
-
+  // El job de expiración degrada plan -> "starter" y setea subscription_downgraded_at
+  // al vencer una suscripción paga (pro/business). Esta es la única señal real
+  // de vencimiento de suscripción que existe en el modelo de datos hoy.
   if (
     business.plan === "starter" &&
     business.subscription_downgraded_at

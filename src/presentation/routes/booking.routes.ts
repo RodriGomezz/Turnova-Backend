@@ -3,7 +3,7 @@ import { validate } from "../middlewares/validate.middleware";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { noCache } from "../middlewares/no-cache.middleware";
 import { bookingLimiter, slotLimiter } from "../middlewares/rateLimiter.middleware";
-import { createBookingSchema } from "../schemas/booking.schema";
+import { createBookingSchema, addBookingItemSchema, cerrarTicketSchema } from "../schemas/booking.schema";
 import { supabase } from "../../infrastructure/database/supabase.client";
 import { getCached, setCache } from "../../infrastructure/cache/public.cache";
 import { getBusinessStatus } from "../../domain/business-status";
@@ -30,6 +30,29 @@ router.get("/panel/month", authMiddleware, noCache, controller.getMonthSummary);
 router.get('/panel/month-full', authMiddleware, noCache, controller.getMonthFull);
 // Junto a las otras rutas del panel
 router.get('/panel/day-summary', authMiddleware, noCache, controller.getDaySummary);
+
+// ── Ítems de detalle de una reserva (multi-servicio) ───────────────────────
+// Agregar/listar servicios o productos cobrados en el momento, y cerrar la
+// cuenta (booking_ticket) una vez que el barbero terminó de cobrar.
+router.get(
+  "/panel/:id/items",
+  authMiddleware,
+  noCache,
+  controller.listItems,
+);
+router.post(
+  "/panel/:id/items",
+  authMiddleware,
+  validate(addBookingItemSchema),
+  controller.addItem,
+);
+router.patch(
+  "/panel/:id/cerrar-cuenta",
+  authMiddleware,
+  validate(cerrarTicketSchema),
+  controller.cerrarCuenta,
+);
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const PUBLIC_SELECT = [
@@ -96,7 +119,11 @@ async function getPublicBusinessData(slug: string) {
           .from('services')
           .select('id, nombre, descripcion, duracion_minutos, precio, precio_hasta, incluye')
           .eq('business_id', b.id)
-          .eq('activo', true),
+          .eq('activo', true)
+          // El servicio genérico ("Otros / Varios") no se ofrece en la
+          // página pública de reserva — solo se usa internamente desde el
+          // panel para cobrar productos/adicionales ad-hoc.
+          .eq('es_generico', false),
         supabase
           .from('barber_services')
           .select('barber_id, service_id')

@@ -1,5 +1,6 @@
 import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository";
 import { IUserRepository } from "../../domain/interfaces/IUserRepository";
+import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
 import { Business, BusinessPlan } from "../../domain/entities/Business";
 import { ConflictError } from "../../domain/errors";
 import { vercelService } from "../../infrastructure/services/vercel.service";
@@ -27,6 +28,7 @@ export class CreateBusinessUseCase {
   constructor(
     private readonly businessRepository: IBusinessRepository,
     private readonly userRepository: IUserRepository,
+    private readonly serviceRepository: IServiceRepository,
   ) {}
 
   async execute(input: CreateBusinessInput): Promise<Business> {
@@ -105,6 +107,33 @@ export class CreateBusinessUseCase {
       );
       throw error;
     }
+
+    // Servicio genérico ("Otros / Varios") para booking_items sin catálogo
+    // (productos, adicionales ad-hoc cobrados en el momento). No bloquea el
+    // alta del negocio si falla: un negocio sin este servicio todavía puede
+    // operar con servicios de catálogo normales, y el backfill de la
+    // migración de multi-servicio crea el faltante para cualquier negocio
+    // que no lo tenga antes de que la feature salga a producción.
+    await this.serviceRepository
+      .create({
+        business_id: business.id,
+        nombre: "Otros / Varios",
+        descripcion: null,
+        incluye: null,
+        // duracion_minutos = 1, no 0: la tabla services tiene un CHECK
+        // constraint (services_duracion_check: duracion_minutos > 0).
+        // Es decorativo — ver nota en la migración 009 de backfill.
+        duracion_minutos: 1,
+        precio: 0,
+        precio_hasta: null,
+        es_generico: true,
+      })
+      .catch((error) => {
+        logger.error("No se pudo crear el servicio genérico del negocio — se creará por backfill", {
+          businessId: business.id,
+          error: error instanceof Error ? error.message : error,
+        });
+      });
 
     logger.info("Negocio creado", {
       businessId: business.id,

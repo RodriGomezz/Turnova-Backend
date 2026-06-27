@@ -53,7 +53,8 @@ export interface GetAllSlotsForDaysInput {
   year: number;
   month: number;
   barberId: string;
-  serviceId?: string;
+  /** Uno o más servicios del combo elegido. La duración total es la suma de todos. */
+  serviceIds?: string[];
   excludeBookingId?: string;
 }
 
@@ -77,11 +78,17 @@ export class GetAllSlotsForDaysUseCase {
     const business = await this.businessRepository.findBySlug(input.slug);
     if (!business) throw new NotFoundError("Negocio");
 
-    const service = input.serviceId
-      ? await this.serviceRepository.findById(input.serviceId)
-      : null;
+    const services = input.serviceIds?.length
+      ? await this.serviceRepository.findByIds(input.serviceIds)
+      : [];
 
-    const duracion = service?.duracion_minutos ?? 30;
+    // Suma de TODOS los servicios del combo — antes solo se tomaba un único
+    // service_id y, si no llegaba (ej. el front manda service_ids plural),
+    // se caía siempre al default de 30 min, generando un grid de horarios
+    // que no coincidía con la duración real usada al crear la reserva.
+    const duracion = services.length > 0
+      ? services.reduce((sum, s) => sum + s.duracion_minutos, 0)
+      : 30;
     const buffer   = business.buffer_minutos ?? 0;
     const { year: y, month: m } = input;
 

@@ -1,4 +1,7 @@
-import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
+import {
+  IBookingRepository,
+  CreateBookingItemInput,
+} from "../../domain/interfaces/IBookingRepository";
 import { Booking } from "../../domain/entities/Booking";
 import { ConflictError } from "../../domain/errors";
 import {
@@ -11,7 +14,8 @@ import { logger } from "../../infrastructure/logger";
 export interface CreateBookingInput {
   business_id: string;
   barber_id: string;
-  service_id: string;
+  /** Uno o más servicios de la reserva. duracion_minutos total = suma de items. */
+  items: CreateBookingItemInput[];
   cliente_nombre: string;
   cliente_email: string;
   cliente_telefono: string;
@@ -56,18 +60,20 @@ export class CreateBookingUseCase {
       );
     }
 
-    const booking = await this.bookingRepository.create({
-      business_id: input.business_id,
-      barber_id: input.barber_id,
-      service_id: input.service_id,
-      cliente_nombre: input.cliente_nombre,
-      cliente_email: input.cliente_email,
-      cliente_telefono: input.cliente_telefono,
-      fecha: input.fecha,
-      hora_inicio: input.hora_inicio,
-      hora_fin: input.hora_fin,
-      estado: input.auto_confirmar ? "confirmada" : "pendiente",
-    });
+    const booking = await this.bookingRepository.createWithItems(
+      {
+        business_id: input.business_id,
+        barber_id: input.barber_id,
+        cliente_nombre: input.cliente_nombre,
+        cliente_email: input.cliente_email,
+        cliente_telefono: input.cliente_telefono,
+        fecha: input.fecha,
+        hora_inicio: input.hora_inicio,
+        hora_fin: input.hora_fin,
+        estado: input.auto_confirmar ? "confirmada" : "pendiente",
+      },
+      input.items,
+    );
 
     logger.info("Reserva creada", {
       bookingId:  booking.id,
@@ -76,6 +82,7 @@ export class CreateBookingUseCase {
       fecha:      input.fecha,
       horaInicio: input.hora_inicio,
       estado:     booking.estado,
+      cantidadServicios: input.items.length,
     });
 
     // Invalidar cache de slots para que el próximo request refleje

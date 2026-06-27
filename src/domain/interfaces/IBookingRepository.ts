@@ -1,8 +1,16 @@
-import { Booking, BookingEstado } from "../entities/Booking";
+import { Booking, BookingEstado, BookingItem } from "../entities/Booking";
 
 export interface BookingsByMonth {
   fecha: string;
   total: number;
+}
+
+/** Ítem de entrada para crear una reserva con múltiples servicios. */
+export interface CreateBookingItemInput {
+  service_id: string;
+  nombre: string;
+  precio: number;
+  duracion_minutos: number;
 }
 
 export interface IBookingRepository {
@@ -22,7 +30,36 @@ export interface IBookingRepository {
     beforeFecha: string,
     emails: string[],
   ): Promise<string[]>;
+  /**
+   * @deprecated Usar createWithItems — se mantiene solo mientras el frontend
+   * viejo siga mandando service_id singular (ver Fase 3 del plan de migración).
+   */
   create(data: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at">): Promise<Booking>;
+  /**
+   * Crea una reserva con uno o más booking_items y su booking_ticket inicial
+   * ('abierto'), todo en una sola transacción de Postgres (función RPC
+   * create_booking_with_items). El constraint bookings_no_overlap se evalúa
+   * dentro de la misma transacción: si hay colisión, no quedan items huérfanos.
+   */
+  createWithItems(
+    bookingData: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at" | "service_id">,
+    items: CreateBookingItemInput[],
+  ): Promise<Booking>;
+  /** Ítems de detalle de una reserva (servicios + productos cobrados). */
+  findItemsByBookingId(bookingId: string): Promise<BookingItem[]>;
+  /**
+   * Reemplaza el combo completo de servicios de una reserva existente y
+   * actualiza hora_fin acorde a la nueva duración total, en una sola
+   * transacción (función RPC replace_booking_items). Para uso de
+   * ModifyBookingUseCase cuando se cambia el conjunto de servicios antes
+   * de que el turno empiece — no confundir con AddBookingItemUseCase,
+   * que agrega ítems sueltos a una reserva ya en curso o pasada.
+   */
+  replaceItems(
+    bookingId: string,
+    horaFin: string,
+    items: CreateBookingItemInput[],
+  ): Promise<Booking>;
   updateEstado(id: string, estado: BookingEstado): Promise<Booking>;
   modify(
     id: string,

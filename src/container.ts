@@ -8,6 +8,8 @@
 
 // ── Infraestructura ───────────────────────────────────────────────────────────
 import { BookingRepository } from "./infrastructure/database/BookingRepository";
+import { BookingItemRepository } from "./infrastructure/database/BookingItemRepository";
+import { BookingTicketRepository } from "./infrastructure/database/BookingTicketRepository";
 import { BusinessRepository } from "./infrastructure/database/BusinessRepository";
 import { BarberRepository } from "./infrastructure/database/BarberRepository";
 import { ServiceRepository } from "./infrastructure/database/ServiceRepository";
@@ -22,6 +24,7 @@ import { dlocalGoClient } from "./infrastructure/payments/dlocalgo.client";
 // ── Use Cases ─────────────────────────────────────────────────────────────────
 import { GetAvailableSlotsUseCase } from "./application/bookings/GetAvailableSlotsUseCase";
 import { CreateBookingUseCase } from "./application/bookings/CreateBookingUseCase";
+import { AddBookingItemUseCase } from "./application/bookings/AddBookingItemUseCase";
 import { GetDaySummaryUseCase } from "./application/bookings/GetDaySummaryUseCase";
 import { GetAvailableDaysUseCase } from "./application/bookings/GetAvailableDaysUseCase";
 import { GetAllSlotsForDaysUseCase } from "./application/bookings/GetAllSlotsForDaysUseCase";
@@ -46,6 +49,8 @@ import { WebhookController } from "./presentation/controllers/WebhookController"
 // ─────────────────────────────────────────────────────────────────────────────
 
 const bookingRepository = new BookingRepository();
+const bookingItemRepository = new BookingItemRepository();
+const bookingTicketRepository = new BookingTicketRepository();
 const businessRepository = new BusinessRepository();
 const barberRepository = new BarberRepository();
 const serviceRepository = new ServiceRepository();
@@ -69,6 +74,13 @@ const getAvailableSlotsUseCase = new GetAvailableSlotsUseCase(
 const createBookingUseCase = new CreateBookingUseCase(
   bookingRepository,
   getAvailableSlotsUseCase,
+);
+
+const addBookingItemUseCase = new AddBookingItemUseCase(
+  bookingRepository,
+  bookingItemRepository,
+  bookingTicketRepository,
+  serviceRepository,
 );
 
 const getDaySummaryUseCase = new GetDaySummaryUseCase(
@@ -98,6 +110,7 @@ const getAllSlotsForDaysUseCase = new GetAllSlotsForDaysUseCase(
 export const createBusinessUseCase = new CreateBusinessUseCase(
   businessRepository,
   userRepository,
+  serviceRepository,
 );
 
 export const createBarberUseCase = new CreateBarberUseCase(barberRepository);
@@ -126,6 +139,7 @@ const modifyBookingUseCase = new ModifyBookingUseCase(
   bookingRepository,
   scheduleRepository,
   blockedDateRepository,
+  serviceRepository,
 );
 
 const cancelBookingUseCase = new CancelBookingUseCase(
@@ -145,6 +159,8 @@ export const bookingController = new BookingController(
   getAllSlotsForDaysUseCase,
   modifyBookingUseCase,
   cancelBookingUseCase,
+  addBookingItemUseCase,
+  bookingTicketRepository,
 );
 
 export const businessController = new BusinessController(

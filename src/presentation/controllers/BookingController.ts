@@ -1,12 +1,15 @@
 import { GetAllSlotsForDaysUseCase } from "../../application/bookings/GetAllSlotsForDaysUseCase";
 import { ModifyBookingUseCase } from "../../application/bookings/ModifyBookingUseCase";
 import { CancelBookingUseCase } from "../../application/bookings/CancelBookingUseCase";
+import { AddBookingItemUseCase } from "../../application/bookings/AddBookingItemUseCase";
 import { getSlotsFromCache, setSlotsCache, invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
 import { Request, Response, NextFunction } from "express";
 import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
+import { IBookingTicketRepository } from "../../domain/interfaces/IBookingTicketRepository";
 import { IBarberRepository } from "../../domain/interfaces/IBarberRepository";
 import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
 import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository";
+import { Service } from "../../domain/entities/Service";
 import { GetAvailableSlotsUseCase } from "../../application/bookings/GetAvailableSlotsUseCase";
 import { CreateBookingUseCase } from "../../application/bookings/CreateBookingUseCase";
 import { GetDaySummaryUseCase } from "../../application/bookings/GetDaySummaryUseCase";
@@ -18,7 +21,7 @@ import {
   AppError,
   ValidationError,
 } from "../../domain/errors";
-import { CreateBookingInput } from "../schemas/booking.schema";
+import { CreateBookingInput, AddBookingItemInput, CerrarTicketInput } from "../schemas/booking.schema";
 import { getPlanLimits } from "../../domain/plan-limits";
 import { getBusinessStatus } from "../../domain/business-status";
 import { logger } from "../../infrastructure/logger";
@@ -37,6 +40,8 @@ export class BookingController {
     private readonly getAllSlotsForDaysUseCase: GetAllSlotsForDaysUseCase,
     private readonly modifyBookingUseCase: ModifyBookingUseCase,
     private readonly cancelBookingUseCase: CancelBookingUseCase,
+    private readonly addBookingItemUseCase: AddBookingItemUseCase,
+    private readonly bookingTicketRepository: IBookingTicketRepository,
   ) {}
 
   // ── Panel del dueño ───────────────────────────────────────────────────────
@@ -140,9 +145,9 @@ export class BookingController {
       const business = await this.businessRepository.findById(req.businessId!);
       if (!business) throw new NotFoundError("Negocio");
 
-      const service = await this.serviceRepository.findById(input.service_id);
-      if (!service) throw new NotFoundError("Servicio");
-      if (service.business_id !== business.id) throw new ForbiddenError();
+      const serviceIds = this.resolveServiceIds(input);
+      const services = await this.serviceRepository.findByIds(serviceIds);
+      this.validateServices(services, serviceIds, business.id);
 
       const barber = await this.barberRepository.findById(input.barber_id);
       if (!barber) throw new NotFoundError("Barbero");
@@ -155,19 +160,25 @@ export class BookingController {
 
       await this.checkMonthlyLimit(business.id, business.plan, business.trial_ends_at);
 
-      const hora_fin = this.calcHoraFin(input.hora_inicio, service.duracion_minutos);
+      const duracionTotal = services.reduce((sum, s) => sum + s.duracion_minutos, 0);
+      const hora_fin = this.calcHoraFin(input.hora_inicio, duracionTotal);
 
       const booking = await this.createBookingUseCase.execute({
         business_id: business.id,
         barber_id: input.barber_id,
-        service_id: input.service_id,
+        items: services.map((s) => ({
+          service_id: s.id,
+          nombre: s.nombre,
+          precio: s.precio,
+          duracion_minutos: s.duracion_minutos,
+        })),
         cliente_nombre: input.cliente_nombre,
         cliente_email: input.cliente_email,
         cliente_telefono: input.cliente_telefono,
         fecha: input.fecha,
         hora_inicio: input.hora_inicio,
         hora_fin,
-        duracion_minutos: service.duracion_minutos,
+        duracion_minutos: duracionTotal,
         buffer_minutos: business.buffer_minutos,
         auto_confirmar: business.auto_confirmar ?? true,
       });
@@ -175,7 +186,7 @@ export class BookingController {
       this.sendEmailsAsync({
         booking,
         business,
-        service: { nombre: service.nombre },
+        services,
         barber: { nombre: barber.nombre },
       });
 
@@ -201,19 +212,31 @@ export class BookingController {
     try {
       const slug = req.params["slug"] as string;
       const barberId = req.query["barber_id"] as string;
-      const serviceId = req.query["service_id"] as string;
       const fecha = req.query["fecha"] as string;
+      const serviceIdsRaw = req.query["service_ids"] as string | undefined;
+      const serviceIdLegacy = req.query["service_id"] as string | undefined;
+      // service_ids (plural, comma-separated) es lo que manda el frontend para
+      // combos de varios servicios. service_id queda como fallback legacy.
+      // Antes esto exigía service_id y nunca leía service_ids: para un combo
+      // la duración usada para generar los slots quedaba mal (un solo servicio
+      // en vez de la suma), desincronizada con la duración real usada al crear
+      // la reserva.
+      const serviceIds = serviceIdsRaw
+        ? serviceIdsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+        : serviceIdLegacy
+          ? [serviceIdLegacy]
+          : [];
 
-      if (!barberId || !serviceId || !fecha) {
-        throw new ValidationError("barber_id, service_id y fecha son requeridos");
+      if (!barberId || serviceIds.length === 0 || !fecha) {
+        throw new ValidationError("barber_id, service_id(s) y fecha son requeridos");
       }
 
       const business = await this.businessRepository.findBySlug(slug);
       if (!business) throw new NotFoundError("Negocio");
 
-      const service = await this.serviceRepository.findById(serviceId);
-      if (!service) throw new NotFoundError("Servicio");
-      if (service.business_id !== business.id) throw new ForbiddenError();
+      const services = await this.serviceRepository.findByIds(serviceIds);
+      this.validateServices(services, serviceIds, business.id);
+      const duracionTotal = services.reduce((sum, s) => sum + s.duracion_minutos, 0);
 
       const barber = await this.barberRepository.findById(barberId);
       if (!barber) throw new NotFoundError("Barbero");
@@ -230,7 +253,7 @@ export class BookingController {
         barberId,
         businessId: business.id,
         fecha,
-        duracionMinutos: service.duracion_minutos,
+        duracionMinutos: duracionTotal,
         bufferMinutos: business.buffer_minutos,
       });
 
@@ -270,9 +293,9 @@ export class BookingController {
       const business = await this.businessRepository.findBySlug(slug);
       if (!business) throw new NotFoundError("Negocio");
 
-      const service = await this.serviceRepository.findById(input.service_id);
-      if (!service) throw new NotFoundError("Servicio");
-      if (service.business_id !== business.id) throw new ForbiddenError();
+      const serviceIds = this.resolveServiceIds(input);
+      const services = await this.serviceRepository.findByIds(serviceIds);
+      this.validateServices(services, serviceIds, business.id);
 
       const barber = await this.barberRepository.findById(input.barber_id);
       if (!barber) throw new NotFoundError("Barbero");
@@ -286,19 +309,25 @@ export class BookingController {
 
       await this.checkMonthlyLimit(business.id, business.plan, business.trial_ends_at);
 
-      const hora_fin = this.calcHoraFin(input.hora_inicio, service.duracion_minutos);
+      const duracionTotal = services.reduce((sum, s) => sum + s.duracion_minutos, 0);
+      const hora_fin = this.calcHoraFin(input.hora_inicio, duracionTotal);
 
       const booking = await this.createBookingUseCase.execute({
         business_id: business.id,
         barber_id: input.barber_id,
-        service_id: input.service_id,
+        items: services.map((s) => ({
+          service_id: s.id,
+          nombre: s.nombre,
+          precio: s.precio,
+          duracion_minutos: s.duracion_minutos,
+        })),
         cliente_nombre: input.cliente_nombre,
         cliente_email: input.cliente_email,
         cliente_telefono: input.cliente_telefono,
         fecha: input.fecha,
         hora_inicio: input.hora_inicio,
         hora_fin,
-        duracion_minutos: service.duracion_minutos,
+        duracion_minutos: duracionTotal,
         buffer_minutos: business.buffer_minutos,
         auto_confirmar: business.auto_confirmar ?? true,
       });
@@ -306,7 +335,7 @@ export class BookingController {
       this.sendEmailsAsync({
         booking,
         business,
-        service: { nombre: service.nombre },
+        services,
         barber: { nombre: barber.nombre },
       });
 
@@ -365,86 +394,85 @@ export class BookingController {
     }
   };
 
-  // ── Helpers privados ──────────────────────────────────────────────────────
+  // ── Ítems de detalle (multi-servicio) ─────────────────────────────────────
 
-  private calcHoraFin(horaInicio: string, duracionMinutos: number): string {
-    const [h, m] = horaInicio.split(":").map(Number);
-    const finMinutes = h * 60 + m + duracionMinutos;
-    return `${Math.floor(finMinutes / 60).toString().padStart(2, "0")}:${(
-      finMinutes % 60
-    )
-      .toString()
-      .padStart(2, "0")}`;
-  }
+  /**
+   * POST /bookings/panel/:id/items
+   * Agrega un servicio o producto a una reserva existente — antes, durante,
+   * o después del turno, mientras el ticket de cobro esté 'abierto'. No hay
+   * límite de tiempo: el barbero cierra la cuenta cuando termina de cobrar.
+   */
+  addItem = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const id = req.params["id"] as string;
+      const input = req.body as AddBookingItemInput;
 
-  private async checkMonthlyLimit(
-    businessId: string,
-    plan: string,
-    trialEndsAt: string | null,
-  ): Promise<void> {
-    const trialActivo = trialEndsAt ? new Date(trialEndsAt) > new Date() : false;
-    const limits = getPlanLimits(plan, trialActivo);
+      const existing = await this.bookingRepository.findById(id);
+      if (!existing) throw new NotFoundError("Reserva");
+      if (existing.business_id !== req.businessId) throw new ForbiddenError();
 
-    if (limits.maxReservasMes === Infinity) return;
+      const result = await this.addBookingItemUseCase.execute({
+        booking_id: id,
+        service_id: input.service_id,
+        nombre_personalizado: input.nombre_personalizado,
+        precio: input.precio,
+        duracion_minutos: input.duracion_minutos,
+      });
 
-    const now = new Date();
-    const count = await this.bookingRepository.countByBusinessAndMonth(
-      businessId,
-      now.getFullYear(),
-      now.getMonth() + 1,
-    );
+      if (result.agendaExtendida) {
+        invalidateSlotsCache(existing.business_id);
+      }
 
-    if (count >= limits.maxReservasMes) {
-      throw new AppError(
-        `Este negocio alcanzó el límite de ${limits.maxReservasMes} reservas del plan Starter este mes.`,
-        403,
-      );
+      res.status(201).json({
+        booking: result.booking,
+        item: result.item,
+        agendaExtendida: result.agendaExtendida,
+      });
+    } catch (error) {
+      next(error);
     }
-  }
+  };
 
-  private sendEmailsAsync(params: {
-    booking: { cliente_email: string; cliente_nombre: string; fecha: string; hora_inicio: string; hora_fin: string; cancellation_token: string };
-    business: { nombre: string; email: string | null; slug: string };
-    service: { nombre: string };
-    barber: { nombre: string };
-  }): void {
-    const { booking, business, service, barber } = params;
-    const horaInicioFmt = booking.hora_inicio.slice(0, 5);
-    const horaFinFmt = booking.hora_fin.slice(0, 5);
+  /**
+   * GET /bookings/panel/:id/items
+   * Lista los servicios/productos cobrados en una reserva.
+   */
+  listItems = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const id = req.params["id"] as string;
 
-    const tasks = [
-      this.emailService.sendBookingConfirmation({
-        to: booking.cliente_email,
-        clienteNombre: booking.cliente_nombre,
-        negocioNombre: business.nombre,
-        servicioNombre: service.nombre,
-        barberoNombre: barber.nombre,
-        fecha: booking.fecha,
-        horaInicio: horaInicioFmt,
-        cancellationToken: booking.cancellation_token,
-        slug: business.slug,
-      }),
-      // Notificar al dueño solo si tiene email configurado, para evitar rebotes y saturación de logs
-      // ...(business.email
-      //   ? [
-      //       this.emailService.sendBookingNotification({
-      //         to: business.email,
-      //         negocioNombre: business.nombre,
-      //         clienteNombre: booking.cliente_nombre,
-      //         clienteEmail: booking.cliente_email,
-      //         clienteTelefono: "",
-      //         servicioNombre: service.nombre,
-      //         barberoNombre: barber.nombre,
-      //         fecha: booking.fecha,
-      //         horaInicio: horaInicioFmt,
-      //         horaFin: horaFinFmt,
-      //       }),
-      //     ]
-      //   : []),
-    ];
+      const existing = await this.bookingRepository.findById(id);
+      if (!existing) throw new NotFoundError("Reserva");
+      if (existing.business_id !== req.businessId) throw new ForbiddenError();
 
-    Promise.all(tasks).catch((err) => logger.error("Error enviando emails", err));
-  }
+      const items = await this.bookingRepository.findItemsByBookingId(id);
+      res.json({ items });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * PATCH /bookings/panel/:id/cerrar-cuenta
+   * Marca el ticket de la reserva como cobrado. A partir de acá sus
+   * booking_items son inmutables — para corregir, se anula y se recrea.
+   */
+  cerrarCuenta = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const id = req.params["id"] as string;
+      const input = req.body as CerrarTicketInput;
+
+      const existing = await this.bookingRepository.findById(id);
+      if (!existing) throw new NotFoundError("Reserva");
+      if (existing.business_id !== req.businessId) throw new ForbiddenError();
+
+      const ticket = await this.bookingTicketRepository.cerrar(id, input.metodo_pago ?? null);
+      res.json({ ticket });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   /**
    * GET /public/:slug/available-days-with-slots
    *
@@ -455,7 +483,7 @@ export class BookingController {
   getAllSlotsForDays = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const slug      = req.params["slug"] as string;
-      const { year, month, barber_id, service_id } = req.query;
+      const { year, month, barber_id, service_id, service_ids } = req.query;
 
       const y = parseInt((year  as string) ?? new Date().getFullYear().toString());
       const m = parseInt((month as string) ?? (new Date().getMonth() + 1).toString());
@@ -466,7 +494,17 @@ export class BookingController {
       }
 
       const barberId  = (barber_id  as string) ?? "";
-      const serviceId = (service_id as string) ?? "";
+      // service_ids (plural, comma-separated) es lo que manda el frontend para
+      // combos de varios servicios. service_id queda como fallback legacy.
+      // Antes esto solo leía service_id: si llegaba service_ids, quedaba vacío
+      // y el cálculo de slots caía siempre al default de 30 min.
+      const serviceIds = service_ids
+        ? (service_ids as string).split(",").map((s) => s.trim()).filter(Boolean)
+        : service_id
+          ? [service_id as string]
+          : [];
+      // Clave de cache estable sin importar el orden en que lleguen los ids.
+      const serviceCacheKey = [...serviceIds].sort().join(",");
 
       // Buscar el businessId para la clave de cache
       const business = await this.businessRepository.findBySlug(slug);
@@ -485,7 +523,7 @@ export class BookingController {
       // Cache hit — transformar al mismo formato que el resultado fresco
       // antes de este fix, se devolvía { year, month, days:[{fecha,slots}] }
       // pero el frontend espera { availableDays: string[], slots: Record<string, TimeSlot[]> }
-      const cached = getSlotsFromCache(business.id, barberId, serviceId, y, m);
+      const cached = getSlotsFromCache(business.id, barberId, serviceCacheKey, y, m);
       if (cached) {
         res.json({
           availableDays: cached.days.map((d) => d.fecha),
@@ -495,10 +533,10 @@ export class BookingController {
       }
 
       const result = await this.getAllSlotsForDaysUseCase.execute({
-        slug, year: y, month: m, barberId, serviceId,
+        slug, year: y, month: m, barberId, serviceIds,
       });
 
-      setSlotsCache(business.id, barberId, serviceId, y, m, result);
+      setSlotsCache(business.id, barberId, serviceCacheKey, y, m, result);
 
       // Transformar al formato esperado por el frontend:
       // { availableDays: string[], slots: Record<string, TimeSlot[]> }
@@ -517,9 +555,9 @@ export class BookingController {
     try {
       const { id }                                  = req.params;
       const { fecha, hora_inicio, hora_fin,
-              barber_id, service_id }               = req.body as {
+              barber_id, service_id, service_ids }  = req.body as {
         fecha: string; hora_inicio: string; hora_fin: string;
-        barber_id?: string; service_id?: string;
+        barber_id?: string; service_id?: string; service_ids?: string[];
       };
 
       if (!fecha || !hora_inicio || !hora_fin) {
@@ -535,6 +573,7 @@ export class BookingController {
         horaFin:    hora_fin,
         barberId:   barber_id,
         serviceId:  service_id,
+        serviceIds: service_ids,
       });
 
       res.json({ booking });
@@ -606,5 +645,104 @@ export class BookingController {
       next(error);
     }
   };
+
+  // ── Helpers privados ──────────────────────────────────────────────────────
+
+  /** Normaliza service_id (legacy) y service_ids (nuevo) a un solo array. */
+  private resolveServiceIds(input: CreateBookingInput): string[] {
+    if (input.service_ids?.length) return input.service_ids;
+    if (input.service_id) return [input.service_id];
+    throw new ValidationError("Se requiere service_id o service_ids");
+  }
+
+  private validateServices(services: Service[], requestedIds: string[], businessId: string): void {
+    if (services.length !== requestedIds.length) {
+      throw new NotFoundError("Servicio");
+    }
+    if (services.some((s) => s.business_id !== businessId)) {
+      throw new ForbiddenError();
+    }
+  }
+
+  private calcHoraFin(horaInicio: string, duracionMinutos: number): string {
+    const [h, m] = horaInicio.split(":").map(Number);
+    const finMinutes = h * 60 + m + duracionMinutos;
+    return `${Math.floor(finMinutes / 60).toString().padStart(2, "0")}:${(
+      finMinutes % 60
+    )
+      .toString()
+      .padStart(2, "0")}`;
+  }
+
+  private async checkMonthlyLimit(
+    businessId: string,
+    plan: string,
+    trialEndsAt: string | null,
+  ): Promise<void> {
+    const trialActivo = trialEndsAt ? new Date(trialEndsAt) > new Date() : false;
+    const limits = getPlanLimits(plan, trialActivo);
+
+    if (limits.maxReservasMes === Infinity) return;
+
+    const now = new Date();
+    const count = await this.bookingRepository.countByBusinessAndMonth(
+      businessId,
+      now.getFullYear(),
+      now.getMonth() + 1,
+    );
+
+    if (count >= limits.maxReservasMes) {
+      throw new AppError(
+        `Este negocio alcanzó el límite de ${limits.maxReservasMes} reservas del plan Starter este mes.`,
+        403,
+      );
+    }
+  }
+
+  private sendEmailsAsync(params: {
+    booking: { cliente_email: string; cliente_nombre: string; fecha: string; hora_inicio: string; hora_fin: string; cancellation_token: string };
+    business: { nombre: string; email: string | null; slug: string };
+    services: Service[];
+    barber: { nombre: string };
+  }): void {
+    const { booking, business, services, barber } = params;
+    const horaInicioFmt = booking.hora_inicio.slice(0, 5);
+    const horaFinFmt = booking.hora_fin.slice(0, 5);
+    // Lista legible de servicios para el email — "Corte de pelo + Lavado".
+    const servicioNombre = services.map((s) => s.nombre).join(" + ");
+
+    const tasks = [
+      this.emailService.sendBookingConfirmation({
+        to: booking.cliente_email,
+        clienteNombre: booking.cliente_nombre,
+        negocioNombre: business.nombre,
+        servicioNombre,
+        barberoNombre: barber.nombre,
+        fecha: booking.fecha,
+        horaInicio: horaInicioFmt,
+        cancellationToken: booking.cancellation_token,
+        slug: business.slug,
+      }),
+      // Notificar al dueño solo si tiene email configurado, para evitar rebotes y saturación de logs
+      // ...(business.email
+      //   ? [
+      //       this.emailService.sendBookingNotification({
+      //         to: business.email,
+      //         negocioNombre: business.nombre,
+      //         clienteNombre: booking.cliente_nombre,
+      //         clienteEmail: booking.cliente_email,
+      //         clienteTelefono: "",
+      //         servicioNombre,
+      //         barberoNombre: barber.nombre,
+      //         fecha: booking.fecha,
+      //         horaInicio: horaInicioFmt,
+      //         horaFin: horaFinFmt,
+      //       }),
+      //     ]
+      //   : []),
+    ];
+
+    Promise.all(tasks).catch((err) => logger.error("Error enviando emails", err));
+  }
 
 }

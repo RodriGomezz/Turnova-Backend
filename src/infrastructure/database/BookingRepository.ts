@@ -1,13 +1,15 @@
 import { supabase } from "./supabase.client";
-import { Booking, BookingEstado } from "../../domain/entities/Booking";
+import { Booking, BookingEstado, BookingItem } from "../../domain/entities/Booking";
 import { AppError, ConflictError } from "../../domain/errors";
 import {
   IBookingRepository,
   BookingsByMonth,
+  CreateBookingItemInput,
 } from "../../domain/interfaces/IBookingRepository";
 
 export class BookingRepository implements IBookingRepository {
   private readonly table = "bookings";
+  private readonly itemsTable = "booking_items";
 
   async findById(id: string): Promise<Booking | null> {
     const { data, error } = await supabase
@@ -37,7 +39,7 @@ export class BookingRepository implements IBookingRepository {
     const { data, error } = await supabase
       .from(this.table)
       .select(
-        "*, barbers(nombre), services(nombre, duracion_minutos, precio, precio_hasta)",
+        "*, barbers(nombre), services(nombre, duracion_minutos, precio, precio_hasta), booking_items(id, service_id, nombre, precio, duracion_minutos)",
       )
       .eq("business_id", businessId)
       .eq("fecha", fecha)
@@ -118,6 +120,7 @@ export class BookingRepository implements IBookingRepository {
     return (data ?? []).map((b: { cliente_email: string }) => b.cliente_email);
   }
 
+  /** @deprecated Usar createWithItems — ver nota en IBookingRepository. */
   async create(
     data: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at">,
   ): Promise<Booking> {
@@ -136,6 +139,64 @@ export class BookingRepository implements IBookingRepository {
     }
     if (error) throw new AppError(error.message, 500);
     return created as Booking;
+  }
+
+  /**
+   * Crea una reserva con sus booking_items y booking_ticket inicial en una
+   * sola transacción de Postgres (función create_booking_with_items), para
+   * que un fallo a mitad de camino no deje datos huérfanos. El constraint
+   * bookings_no_overlap se sigue evaluando en el INSERT de bookings dentro
+   * de la función — no se mueve ni se duplica.
+   */
+  async createWithItems(
+    bookingData: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at" | "service_id">,
+    items: CreateBookingItemInput[],
+  ): Promise<Booking> {
+    const { data, error } = await supabase.rpc("create_booking_with_items", {
+      booking_data: bookingData,
+      items_data: items,
+    });
+
+    if (error?.code === "23P01" || error?.code === "23505") {
+      throw new ConflictError("El horario seleccionado ya no está disponible");
+    }
+    if (error) throw new AppError(error.message, 500);
+    return data as Booking;
+  }
+
+  async findItemsByBookingId(bookingId: string): Promise<BookingItem[]> {
+    const { data, error } = await supabase
+      .from(this.itemsTable)
+      .select("*")
+      .eq("booking_id", bookingId)
+      .order("created_at", { ascending: true });
+
+    if (error) throw new AppError(error.message, 500);
+    return (data ?? []) as BookingItem[];
+  }
+
+  /**
+   * Reemplaza el combo completo de servicios de una reserva y actualiza
+   * hora_fin, en una sola transacción (función replace_booking_items).
+   * Usado por ModifyBookingUseCase cuando se cambia el conjunto de
+   * servicios antes de que el turno empiece.
+   */
+  async replaceItems(
+    bookingId: string,
+    horaFin: string,
+    items: CreateBookingItemInput[],
+  ): Promise<Booking> {
+    const { data, error } = await supabase.rpc("replace_booking_items", {
+      p_booking_id: bookingId,
+      p_hora_fin: horaFin,
+      items_data: items,
+    });
+
+    if (error?.code === "23P01" || error?.code === "23505") {
+      throw new ConflictError("El nuevo horario ya no está disponible para este profesional");
+    }
+    if (error) throw new AppError(error.message, 500);
+    return data as Booking;
   }
 
   async updateEstado(id: string, estado: BookingEstado): Promise<Booking> {
@@ -177,7 +238,7 @@ export class BookingRepository implements IBookingRepository {
     const { data, error } = await supabase
       .from(this.table)
       .select(
-        "*, barbers(nombre), services(nombre, duracion_minutos, precio, precio_hasta)",
+        "*, barbers(nombre), services(nombre, duracion_minutos, precio, precio_hasta), booking_items(id, service_id, nombre, precio, duracion_minutos)",
       )
       .eq("business_id", businessId)
       // Se incluyen canceladas a propósito: ver nota en findByBusinessAndDate.

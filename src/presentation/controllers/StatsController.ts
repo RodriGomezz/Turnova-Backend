@@ -2,26 +2,26 @@ import { Request, Response, NextFunction } from "express";
 import { supabase } from "../../infrastructure/database/supabase.client";
 import { AppError } from "../../domain/errors";
 import { UserBusinessAccessRepository } from "../../infrastructure/database/UserBusinessAccessRepository";
+import { sumPrecioItems } from "../../domain/booking-pricing";
 
-// Tipo local que refleja el shape del join bookings ⟶ services.
+// Tipo local que refleja el shape del join bookings ⟶ booking_items.
 // Supabase no puede inferir tipos en selects con string dinámico, así que
 // casteamos explícitamente en lugar de usar `as any`.
-interface BookingWithService {
+interface BookingWithItems {
   id:                string;
   estado:            string;
   fecha:             string;
   hora_inicio:       string;
   barber_id:         string;
-  service_id:        string;
   cliente_email:     string;
   cliente_telefono:  string;
-  services:          { nombre: string; precio: number } | null;
+  booking_items:     { service_id: string; nombre: string; precio: number }[] | null;
 }
 
-interface PrevBookingWithService {
-  id:       string;
-  estado:   string;
-  services: { precio: number } | null;
+interface PrevBookingWithItems {
+  id:            string;
+  estado:        string;
+  booking_items: { precio: number }[] | null;
 }
 
 export class StatsController {
@@ -60,19 +60,22 @@ export class StatsController {
       const prevLastDay = new Date(prevYear, prevMonth, 0).getDate();
       const prevTo = `${prevYear}-${prevMonth.toString().padStart(2, "0")}-${prevLastDay}`;
 
-      // Traer todos los turnos del mes actual y anterior en paralelo
+      // Traer todos los turnos del mes actual y anterior en paralelo.
+      // booking_items reemplaza el JOIN a services: nombre/precio son
+      // snapshots tomados al crear la reserva, no el precio actual del
+      // catálogo (evita que un cambio de precio mute reportes históricos).
       const [currentRes, prevRes] = await Promise.all([
         supabase
           .from("bookings")
           .select(
-            "id, estado, fecha, hora_inicio, barber_id, service_id, cliente_email, cliente_telefono, services(nombre, precio)",
+            "id, estado, fecha, hora_inicio, barber_id, cliente_email, cliente_telefono, booking_items(service_id, nombre, precio)",
           )
           .in("business_id", targetBusinessIds)
           .gte("fecha", from)
           .lte("fecha", to),
         supabase
           .from("bookings")
-          .select("id, estado, services(precio)")
+          .select("id, estado, booking_items(precio)")
           .in("business_id", targetBusinessIds)
           .gte("fecha", prevFrom)
           .lte("fecha", prevTo)
@@ -82,8 +85,8 @@ export class StatsController {
       if (currentRes.error) throw new AppError(currentRes.error.message, 500);
       if (prevRes.error) throw new AppError(prevRes.error.message, 500);
 
-      const bookings     = (currentRes.data ?? []) as unknown as BookingWithService[];
-      const prevBookings = (prevRes.data   ?? []) as unknown as PrevBookingWithService[];
+      const bookings     = (currentRes.data ?? []) as unknown as BookingWithItems[];
+      const prevBookings = (prevRes.data   ?? []) as unknown as PrevBookingWithItems[];
 
       const activos = bookings.filter((b) => b.estado !== "cancelada");
 
@@ -97,11 +100,11 @@ export class StatsController {
 
       // ── Ingresos ───────────────────────────────────────────────────────────
       const ingresosMes = activos.reduce(
-        (sum, b) => sum + (b.services?.precio ?? 0),
+        (sum, b) => sum + sumPrecioItems(b.booking_items),
         0,
       );
       const ingresosPrev = prevBookings.reduce(
-        (sum, b) => sum + (b.services?.precio ?? 0),
+        (sum, b) => sum + sumPrecioItems(b.booking_items),
         0,
       );
       const ingresosVariacion =
@@ -128,37 +131,41 @@ export class StatsController {
         Object.entries(porBarbero).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
       // ── Servicio más solicitado ────────────────────────────────────────────
+      // Cuenta por booking_item, no por booking: una reserva con 2 servicios
+      // suma 1 a cada uno, no 1 al combo como unidad. Esto refleja mejor qué
+      // servicio puntual es más pedido, en vez de qué combinación de servicios.
       const porServicio: Record<string, { nombre: string; count: number }> = {};
       for (const b of activos) {
-        const nombre = b.services?.nombre ?? "Desconocido";
-        if (!porServicio[b.service_id]) {
-          porServicio[b.service_id] = { nombre, count: 0 };
+        for (const item of b.booking_items ?? []) {
+          if (!porServicio[item.service_id]) {
+            porServicio[item.service_id] = { nombre: item.nombre, count: 0 };
+          }
+          porServicio[item.service_id].count++;
         }
-        porServicio[b.service_id].count++;
       }
       const topServicio =
         Object.values(porServicio).sort((a, b) => b.count - a.count)[0] ?? null;
 
       // ── Hora pico ──────────────────────────────────────────────────────────
-    const porHoraMap: Record<string, number> = {};
-    for (let h = 0; h < 24; h++) {
-      porHoraMap[`${h.toString().padStart(2, "0")}:00`] = 0;
-    }
-    for (const b of activos) {
-      const hora = b.hora_inicio.slice(0, 2) + ":00";
-      porHoraMap[hora] = (porHoraMap[hora] ?? 0) + 1;
-    }
+      const porHoraMap: Record<string, number> = {};
+      for (let h = 0; h < 24; h++) {
+        porHoraMap[`${h.toString().padStart(2, "0")}:00`] = 0;
+      }
+      for (const b of activos) {
+        const hora = b.hora_inicio.slice(0, 2) + ":00";
+        porHoraMap[hora] = (porHoraMap[hora] ?? 0) + 1;
+      }
 
-    // Filtrar solo horas con actividad para el gráfico
-    const distribucionHoras = Object.entries(porHoraMap)
-      .filter(([, count]) => count > 0)
-      .map(([hora, count]) => ({ hora, count }));
+      // Filtrar solo horas con actividad para el gráfico
+      const distribucionHoras = Object.entries(porHoraMap)
+        .filter(([, count]) => count > 0)
+        .map(([hora, count]) => ({ hora, count }));
 
-    const horaPico =
-      distribucionHoras.length > 0
-        ? distribucionHoras.reduce((max, h) => (h.count > max.count ? h : max))
-            .hora
-        : null;
+      const horaPico =
+        distribucionHoras.length > 0
+          ? distribucionHoras.reduce((max, h) => (h.count > max.count ? h : max))
+              .hora
+          : null;
 
       // ── Clientes nuevos vs recurrentes ─────────────────────────────────────
       // Clientes que reservaron antes del mes actual
