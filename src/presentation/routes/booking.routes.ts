@@ -59,6 +59,7 @@ const PUBLIC_SELECT = [
   "plan",
   "trial_ends_at",
   "activo",
+  "subscription_downgraded_at",
   "ciudad",
   "pais",
 ].join(", ");
