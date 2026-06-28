@@ -44,6 +44,15 @@ export class AddBookingItemUseCase {
     const booking = await this.bookingRepository.findById(input.booking_id);
     if (!booking) throw new NotFoundError("Reserva");
 
+    if (booking.estado === "no_show") {
+      throw new ConflictError(
+        "No se puede agregar un servicio a una reserva marcada como no asistió. Si el cliente llegó, revertí el estado a confirmada primero.",
+      );
+    }
+    if (booking.estado === "cancelada") {
+      throw new ConflictError("No se puede agregar un servicio a una reserva cancelada.");
+    }
+
     const ticket = await this.bookingTicketRepository.findByBookingId(booking.id);
     if (ticket?.estado === "cobrado") {
       throw new ConflictError(

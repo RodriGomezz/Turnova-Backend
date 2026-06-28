@@ -2,7 +2,8 @@ export type BookingEstado =
   | "pendiente"
   | "confirmada"
   | "cancelada"
-  | "modificada";
+  | "modificada"
+  | "no_show";
 
 export interface Booking {
   id: string;
@@ -31,6 +32,13 @@ export interface Booking {
   cancelled_at?: string | null;
   /** Motivo de cancelación ingresado por el negocio */
   cancel_reason?: string | null;
+  /**
+   * Timestamp de cuando se marcó la reserva como "no asistió". Se excluye
+   * de ingresosMes/ingresoDia (igual que cancelada) pero se cuenta aparte
+   * en un contador noShows, para que el negocio pueda ver su tasa de
+   * inasistencia sin que infle ni vacíe los reportes de facturación.
+   */
+  no_show_at?: string | null;
   created_at: string;
 }
 

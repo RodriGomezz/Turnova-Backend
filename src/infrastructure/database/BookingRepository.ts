@@ -201,12 +201,15 @@ export class BookingRepository implements IBookingRepository {
 
   async updateEstado(id: string, estado: BookingEstado): Promise<Booking> {
     // Si se cancela desde el panel, registrar cancelled_at igual que cancelByToken
-    // (mismo criterio de auditoría). Si se revierte a pendiente/confirmada,
-    // limpiar cancelled_at para no dejar un estado inconsistente.
+    // (mismo criterio de auditoría). Si se marca no_show, registrar no_show_at
+    // de la misma forma. Pasar a cualquier otro estado limpia ambos timestamps
+    // para no dejar un estado inconsistente (ej. confirmada con cancelled_at seteado).
     const extra =
       estado === "cancelada"
-        ? { cancelled_at: new Date().toISOString() }
-        : { cancelled_at: null, cancel_reason: null };
+        ? { cancelled_at: new Date().toISOString(), no_show_at: null }
+        : estado === "no_show"
+          ? { no_show_at: new Date().toISOString(), cancelled_at: null, cancel_reason: null }
+          : { cancelled_at: null, cancel_reason: null, no_show_at: null };
 
     const { data: updated, error } = await supabase
       .from(this.table)

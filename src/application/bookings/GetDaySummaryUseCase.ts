@@ -26,6 +26,7 @@ export interface DaySummaryResult {
   resumen: {
     totalTurnos: number;
     cancelados: number;
+    noShows: number;
     pendientes: number;
     confirmados: number;
     ingresoDia: number;
@@ -73,7 +74,7 @@ export class GetDaySummaryUseCase {
     ]);
 
     const activos = bookings.filter(
-      (b): b is BookingWithItems => b.estado !== "cancelada",
+      (b): b is BookingWithItems => b.estado !== "cancelada" && b.estado !== "no_show",
     );
     const buffer = business.buffer_minutos ?? 0;
 
@@ -124,6 +125,7 @@ export class GetDaySummaryUseCase {
       resumen: {
         totalTurnos: activos.length,
         cancelados: bookings.filter((b) => b.estado === "cancelada").length,
+        noShows: bookings.filter((b) => b.estado === "no_show").length,
         pendientes: bookings.filter((b) => b.estado === "pendiente").length,
         confirmados: bookings.filter((b) => b.estado === "confirmada").length,
         ingresoDia,

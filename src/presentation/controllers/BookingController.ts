@@ -83,7 +83,7 @@ export class BookingController {
       const id = req.params["id"] as string;
       const { estado } = req.body as { estado: string };
 
-      const VALID_ESTADOS = ["pendiente", "confirmada", "cancelada"] as const;
+      const VALID_ESTADOS = ["pendiente", "confirmada", "cancelada", "no_show"] as const;
       type EstadoValido = (typeof VALID_ESTADOS)[number];
 
       const isValidEstado = (s: string): s is EstadoValido =>
@@ -98,6 +98,22 @@ export class BookingController {
       const existing = await this.bookingRepository.findById(id);
       if (!existing) throw new NotFoundError("Reserva");
       if (existing.business_id !== req.businessId) throw new ForbiddenError();
+
+      if (estado === "no_show") {
+        if (existing.estado === "cancelada") {
+          throw new AppError("No se puede marcar como no asistió una reserva cancelada", 400);
+        }
+        // No tiene sentido marcar "no asistió" antes de que el turno haya
+        // empezado — evita que se use como cancelación encubierta para un
+        // turno futuro (lo cual además seguiría bloqueando el slot en la
+        // agenda, ya que no_show no libera el horario en getAvailableSlots).
+        if (this.aunNoEmpezo(existing.fecha, existing.hora_inicio)) {
+          throw new AppError(
+            "No se puede marcar como no asistió un turno que todavía no empezó",
+            400,
+          );
+        }
+      }
 
       const booking = await this.bookingRepository.updateEstado(id, estado);
       res.json({ booking });
@@ -672,6 +688,18 @@ export class BookingController {
     )
       .toString()
       .padStart(2, "0")}`;
+  }
+
+  /**
+   * true si la fecha+hora_inicio del turno todavía no llegó. Parsea como
+   * hora local del servidor, mismo criterio que cancelByToken — ver el
+   * comentario ahí sobre por qué no usar Date.parse con el string ISO directo.
+   */
+  private aunNoEmpezo(fecha: string, horaInicio: string): boolean {
+    const [year, month, day] = fecha.split("-").map(Number);
+    const [hour, min] = horaInicio.split(":").map(Number);
+    const turnoDateTime = new Date(year, month - 1, day, hour, min);
+    return turnoDateTime.getTime() > Date.now();
   }
 
   private async checkMonthlyLimit(

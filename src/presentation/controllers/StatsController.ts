@@ -79,7 +79,7 @@ export class StatsController {
           .in("business_id", targetBusinessIds)
           .gte("fecha", prevFrom)
           .lte("fecha", prevTo)
-          .neq("estado", "cancelada"),
+          .not("estado", "in", '("cancelada","no_show")'),
       ]);
 
       if (currentRes.error) throw new AppError(currentRes.error.message, 500);
@@ -88,15 +88,20 @@ export class StatsController {
       const bookings     = (currentRes.data ?? []) as unknown as BookingWithItems[];
       const prevBookings = (prevRes.data   ?? []) as unknown as PrevBookingWithItems[];
 
-      const activos = bookings.filter((b) => b.estado !== "cancelada");
+      const activos = bookings.filter(
+        (b) => b.estado !== "cancelada" && b.estado !== "no_show",
+      );
 
       // ── Métricas base ──────────────────────────────────────────────────────
       const totalMes = bookings.length;
       const cancelados = bookings.filter(
         (b) => b.estado === "cancelada",
       ).length;
+      const noShows = bookings.filter((b) => b.estado === "no_show").length;
       const tasaCancelacion =
         totalMes > 0 ? Math.round((cancelados / totalMes) * 100) : 0;
+      const tasaNoShow =
+        totalMes > 0 ? Math.round((noShows / totalMes) * 100) : 0;
 
       // ── Ingresos ───────────────────────────────────────────────────────────
       const ingresosMes = activos.reduce(
@@ -254,6 +259,8 @@ export class StatsController {
           turnosVariacion,
           cancelados,
           tasaCancelacion,
+          noShows,
+          tasaNoShow,
           ingresosMes,
           ingresosVariacion,
           clientesNuevos,
