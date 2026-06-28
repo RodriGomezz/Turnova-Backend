@@ -20,6 +20,17 @@ export class BookingItemRepository implements IBookingItemRepository {
     return (data ?? []) as BookingItem[];
   }
 
+  async findById(id: string): Promise<BookingItem | null> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error) throw new AppError(error.message, 500);
+    return (data as BookingItem) ?? null;
+  }
+
   async create(data: CreateBookingItemData): Promise<BookingItem> {
     const { data: created, error } = await supabase
       .from(this.table)
@@ -29,5 +40,10 @@ export class BookingItemRepository implements IBookingItemRepository {
 
     if (error) throw new AppError(error.message, 500);
     return created as BookingItem;
+  }
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase.from(this.table).delete().eq("id", id);
+    if (error) throw new AppError(error.message, 500);
   }
 }

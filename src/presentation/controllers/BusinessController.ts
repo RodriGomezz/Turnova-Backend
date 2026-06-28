@@ -8,6 +8,7 @@ import { getPlanLimits } from "../../domain/plan-limits";
 import { UpdateBusinessInput } from "../schemas/business.schema";
 import { invalidateUserCache } from "../middlewares/auth.middleware";
 import { invalidateByBusinessId } from "../../infrastructure/cache/public.cache";
+import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
 import { updateBusinessNetwork, findNetworkBusinessIds } from "../../infrastructure/database/business-network";
 import { logger } from "../../infrastructure/logger";
 
@@ -35,6 +36,12 @@ export class BusinessController {
       const input = req.body as UpdateBusinessInput;
       const business = await this.businessRepository.update(req.businessId!, input);
       invalidateByBusinessId(req.businessId!);
+      // Cualquier campo de Business puede influir en el cálculo de slots
+      // (ej. buffer_minutos, dias_anticipacion) — se invalida siempre, no
+      // solo cuando se detecta un campo específico, para no tener que
+      // mantener una lista de "qué campos importan" sincronizada a mano
+      // cada vez que se agregue uno nuevo que afecte disponibilidad.
+      invalidateSlotsCache(req.businessId!);
       logger.info("Negocio actualizado", { businessId: req.businessId });
       res.json({ business });
     } catch (error) {
@@ -121,6 +128,7 @@ export class BusinessController {
 
       await this.businessRepository.update(businessId, { activo: false });
       invalidateByBusinessId(businessId);
+      invalidateSlotsCache(businessId);
 
       await this.switchAwayIfCurrent(userId, businessId);
 
@@ -150,6 +158,7 @@ export class BusinessController {
 
     await this.businessRepository.update(businessId, { activo: true });
     invalidateByBusinessId(businessId);
+    invalidateSlotsCache(businessId);
 
     res.json({ message: "Sucursal reactivada correctamente" });
   } catch (error) {

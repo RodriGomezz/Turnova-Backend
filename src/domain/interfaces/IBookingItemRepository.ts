@@ -10,5 +10,7 @@ export interface CreateBookingItemData {
 
 export interface IBookingItemRepository {
   findByBookingId(bookingId: string): Promise<BookingItem[]>;
+  findById(id: string): Promise<BookingItem | null>;
   create(data: CreateBookingItemData): Promise<BookingItem>;
+  delete(id: string): Promise<void>;
 }

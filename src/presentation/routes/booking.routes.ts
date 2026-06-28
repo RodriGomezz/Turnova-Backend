@@ -46,6 +46,11 @@ router.post(
   validate(addBookingItemSchema),
   controller.addItem,
 );
+router.delete(
+  "/panel/:id/items/:itemId",
+  authMiddleware,
+  controller.removeItem,
+);
 router.patch(
   "/panel/:id/cerrar-cuenta",
   authMiddleware,
@@ -82,7 +87,6 @@ const PUBLIC_SELECT = [
   "plan",
   "trial_ends_at",
   "activo",
-  "subscription_downgraded_at",
   "ciudad",
   "pais",
 ].join(", ");

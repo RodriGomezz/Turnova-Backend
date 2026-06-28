@@ -2,6 +2,7 @@ import { GetAllSlotsForDaysUseCase } from "../../application/bookings/GetAllSlot
 import { ModifyBookingUseCase } from "../../application/bookings/ModifyBookingUseCase";
 import { CancelBookingUseCase } from "../../application/bookings/CancelBookingUseCase";
 import { AddBookingItemUseCase } from "../../application/bookings/AddBookingItemUseCase";
+import { RemoveBookingItemUseCase } from "../../application/bookings/RemoveBookingItemUseCase";
 import { getSlotsFromCache, setSlotsCache, invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
 import { Request, Response, NextFunction } from "express";
 import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
@@ -41,6 +42,7 @@ export class BookingController {
     private readonly modifyBookingUseCase: ModifyBookingUseCase,
     private readonly cancelBookingUseCase: CancelBookingUseCase,
     private readonly addBookingItemUseCase: AddBookingItemUseCase,
+    private readonly removeBookingItemUseCase: RemoveBookingItemUseCase,
     private readonly bookingTicketRepository: IBookingTicketRepository,
   ) {}
 
@@ -463,6 +465,31 @@ export class BookingController {
 
       const items = await this.bookingRepository.findItemsByBookingId(id);
       res.json({ items });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  /**
+   * DELETE /bookings/panel/:id/items/:itemId
+   * Quita un servicio/producto agregado a una reserva. Sin límite de fecha
+   * (igual que addItem) — bloqueado solo si el ticket ya está cobrado.
+   */
+  removeItem = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const id = req.params["id"] as string;
+      const itemId = req.params["itemId"] as string;
+
+      const existing = await this.bookingRepository.findById(id);
+      if (!existing) throw new NotFoundError("Reserva");
+      if (existing.business_id !== req.businessId) throw new ForbiddenError();
+
+      await this.removeBookingItemUseCase.execute({
+        booking_id: id,
+        item_id: itemId,
+      });
+
+      res.status(204).send();
     } catch (error) {
       next(error);
     }

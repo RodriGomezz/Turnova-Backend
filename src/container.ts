@@ -25,6 +25,7 @@ import { dlocalGoClient } from "./infrastructure/payments/dlocalgo.client";
 import { GetAvailableSlotsUseCase } from "./application/bookings/GetAvailableSlotsUseCase";
 import { CreateBookingUseCase } from "./application/bookings/CreateBookingUseCase";
 import { AddBookingItemUseCase } from "./application/bookings/AddBookingItemUseCase";
+import { RemoveBookingItemUseCase } from "./application/bookings/RemoveBookingItemUseCase";
 import { GetDaySummaryUseCase } from "./application/bookings/GetDaySummaryUseCase";
 import { GetAvailableDaysUseCase } from "./application/bookings/GetAvailableDaysUseCase";
 import { GetAllSlotsForDaysUseCase } from "./application/bookings/GetAllSlotsForDaysUseCase";
@@ -81,6 +82,12 @@ const addBookingItemUseCase = new AddBookingItemUseCase(
   bookingItemRepository,
   bookingTicketRepository,
   serviceRepository,
+);
+
+const removeBookingItemUseCase = new RemoveBookingItemUseCase(
+  bookingItemRepository,
+  bookingTicketRepository,
+  bookingRepository,
 );
 
 const getDaySummaryUseCase = new GetDaySummaryUseCase(
@@ -160,6 +167,7 @@ export const bookingController = new BookingController(
   modifyBookingUseCase,
   cancelBookingUseCase,
   addBookingItemUseCase,
+  removeBookingItemUseCase,
   bookingTicketRepository,
 );
 
