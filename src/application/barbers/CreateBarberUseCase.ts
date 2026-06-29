@@ -12,6 +12,7 @@ export class CreateBarberUseCase {
   constructor(private readonly barberRepository: IBarberRepository) {}
 
   async execute(input: CreateBarberInput): Promise<Barber> {
-    return this.barberRepository.create(input);
+    const orden = input.orden ?? (await this.barberRepository.getNextOrden(input.business_id));
+    return this.barberRepository.create({ ...input, orden });
   }
 }

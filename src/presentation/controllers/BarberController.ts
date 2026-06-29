@@ -3,6 +3,7 @@ import { BarberRepository }        from "../../infrastructure/database/BarberRep
 import { BarberServiceRepository } from "../../infrastructure/database/BarberServiceRepository";
 import { CreateBarberUseCase }     from "../../application/barbers/CreateBarberUseCase";
 import { ListBarbersUseCase }      from "../../application/barbers/ListBarbersUseCase";
+import { ReorderBarbersUseCase }   from "../../application/barbers/ReorderBarbersUseCase";
 import { BusinessRepository }      from "../../infrastructure/database/BusinessRepository";
 import { ServiceRepository }       from "../../infrastructure/database/ServiceRepository";
 import {
@@ -11,7 +12,7 @@ import {
   AppError,
 } from "../middlewares/errorHandler.middleware";
 import { getPlanLimits }           from "../../domain/plan-limits";
-import { CreateBarberInput, UpdateBarberInput } from "../schemas/barber.schema";
+import { CreateBarberInput, UpdateBarberInput, ReorderBarbersInput } from "../schemas/barber.schema";
 import { logger }                  from "../../infrastructure/logger";
 
 export class BarberController {
@@ -21,6 +22,7 @@ export class BarberController {
   private readonly serviceRepository:       ServiceRepository;
   private readonly createBarberUseCase:     CreateBarberUseCase;
   private readonly listBarbersUseCase:      ListBarbersUseCase;
+  private readonly reorderBarbersUseCase:   ReorderBarbersUseCase;
 
   constructor() {
     this.barberRepository        = new BarberRepository();
@@ -29,6 +31,7 @@ export class BarberController {
     this.serviceRepository       = new ServiceRepository();
     this.createBarberUseCase     = new CreateBarberUseCase(this.barberRepository);
     this.listBarbersUseCase      = new ListBarbersUseCase(this.barberRepository);
+    this.reorderBarbersUseCase   = new ReorderBarbersUseCase(this.barberRepository);
   }
 
   // ── GET /api/barbers ────────────────────────────────────────────────────────
@@ -212,6 +215,35 @@ export class BarberController {
       });
 
       res.json({ message: "Servicio quitado correctamente" });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // ── PUT /api/barbers/reorder ─────────────────────────────────────────────────
+  // Persiste el nuevo orden tras un drag&drop o un click en ↑/↓ del panel.
+  // Mismo contrato que ServiceController.reorder: la lista completa de ids
+  // del negocio en su nuevo orden, no pares sueltos {id, orden}.
+
+  reorder = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const input = req.body as ReorderBarbersInput;
+
+      // Defensa de pertenencia: todos los ids mandados deben ser
+      // profesionales de ESTE negocio. Si alguno no lo es, se rechaza
+      // entero en vez de reordenar parcialmente.
+      const existing = await this.barberRepository.findByBusiness(req.businessId!);
+      const ownIds = new Set(existing.map((b) => b.id));
+      const allBelongToBusiness = input.ordered_ids.every((id) => ownIds.has(id));
+      if (!allBelongToBusiness) throw new ForbiddenError();
+
+      await this.reorderBarbersUseCase.execute({
+        business_id: req.businessId!,
+        ordered_ids: input.ordered_ids,
+      });
+
+      logger.info("Orden de profesionales actualizado", { businessId: req.businessId });
+      res.json({ message: "Orden actualizado correctamente" });
     } catch (error) {
       next(error);
     }

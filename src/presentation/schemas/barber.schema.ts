@@ -13,3 +13,9 @@ export const updateBarberSchema = createBarberSchema.partial().extend({
 
 export type CreateBarberInput = z.infer<typeof createBarberSchema>;
 export type UpdateBarberInput = z.infer<typeof updateBarberSchema>;
+
+export const reorderBarbersSchema = z.object({
+  ordered_ids: z.array(z.string().uuid()).min(1),
+});
+
+export type ReorderBarbersInput = z.infer<typeof reorderBarbersSchema>;

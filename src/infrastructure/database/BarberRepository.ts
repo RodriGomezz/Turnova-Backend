@@ -53,6 +53,37 @@ async findByBusiness(businessId: string): Promise<Barber[]> {
     return created as Barber;
   }
 
+  async getNextOrden(businessId: string): Promise<number> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("orden")
+      .eq("business_id", businessId)
+      .order("orden", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new AppError(error.message, 500);
+    return (data?.orden ?? -1) + 1;
+  }
+
+  async reorder(businessId: string, orderedIds: string[]): Promise<void> {
+    // Un UPDATE por fila — el volumen esperado (profesionales de un
+    // negocio) es chico, no justifica una RPC de batch update. Se valida
+    // pertenencia al negocio en el WHERE de cada update, no solo
+    // confiando en que el caller ya filtró.
+    const updates = orderedIds.map((id, index) =>
+      supabase
+        .from(this.table)
+        .update({ orden: index })
+        .eq("id", id)
+        .eq("business_id", businessId),
+    );
+
+    const results = await Promise.all(updates);
+    const failed = results.find((r) => r.error);
+    if (failed?.error) throw new AppError(failed.error.message, 500);
+  }
+
 // BarberRepository.ts
 
 async update(id: string, businessId: string, data: Partial<Barber>): Promise<Barber> {

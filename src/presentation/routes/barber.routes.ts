@@ -3,7 +3,7 @@ import { BarberController } from '../controllers/BarberController';
 import { validate } from '../middlewares/validate.middleware';
 import { authMiddleware } from '../middlewares/auth.middleware';
 import { noCache } from '../middlewares/no-cache.middleware';
-import { createBarberSchema, updateBarberSchema } from '../schemas/barber.schema';
+import { createBarberSchema, updateBarberSchema, reorderBarbersSchema } from '../schemas/barber.schema';
 import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
 
 const router: Router = Router();
@@ -17,6 +17,14 @@ router.post(
   invalidatePublicCache,
   validate(createBarberSchema),
   controller.create,
+);
+// Debe ir ANTES de PUT /:id — mismo motivo que las rutas de /services más
+// abajo: Express, si no, interpreta "reorder" como un :id de barbero.
+router.put(
+  "/reorder",
+  invalidatePublicCache,
+  validate(reorderBarbersSchema),
+  controller.reorder,
 );
 router.put(
   "/:id",
