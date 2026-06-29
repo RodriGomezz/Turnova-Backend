@@ -126,6 +126,10 @@ export class CreateBusinessUseCase {
         duracion_minutos: 1,
         precio: 0,
         precio_hasta: null,
+        // Irrelevante: este servicio nunca se muestra en una lista
+        // ordenada (se filtra por es_generico en findAllByBusiness y en
+        // el frontend), así que no necesita el cálculo de getNextOrden.
+        orden: 0,
         es_generico: true,
       })
       .catch((error) => {

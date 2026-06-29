@@ -122,13 +122,14 @@ async function getPublicBusinessData(slug: string) {
           .order('orden'),
         supabase
           .from('services')
-          .select('id, nombre, descripcion, duracion_minutos, precio, precio_hasta, incluye')
+          .select('id, nombre, descripcion, duracion_minutos, precio, precio_hasta, incluye, orden')
           .eq('business_id', b.id)
           .eq('activo', true)
           // El servicio genérico ("Otros / Varios") no se ofrece en la
           // página pública de reserva — solo se usa internamente desde el
           // panel para cobrar productos/adicionales ad-hoc.
-          .eq('es_generico', false),
+          .eq('es_generico', false)
+          .order('orden'),
         supabase
           .from('barber_services')
           .select('barber_id, service_id')

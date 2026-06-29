@@ -15,6 +15,16 @@ const REQUIRED_ENV_VARS = [
   "DLOCAL_SECRET_KEY",
   "FRONTEND_URL",
   "API_URL",
+  // resend.client.ts ya las valida con su propio throw a nivel de módulo,
+  // pero ese throw ocurre DURANTE el import de ./app — antes de que estén
+  // registrados los process.on(uncaughtException/unhandledRejection) de más
+  // abajo en este archivo. Resultado: el error queda atrapado únicamente por
+  // los exceptionHandlers de Winston, que con exitOnError:false no hacen
+  // process.exit() — el proceso queda colgado sin arrancar el server y sin
+  // un mensaje claro. Agregándolas aquí, el chequeo de arriba las captura
+  // ANTES de tocar ningún import, con el mismo mensaje prolijo que el resto.
+  "RESEND_API_KEY",
+  "EMAIL_FROM",
 ];
 
 for (const varName of REQUIRED_ENV_VARS) {
@@ -25,10 +35,10 @@ for (const varName of REQUIRED_ENV_VARS) {
 }
 
 logger.info("Configuración al arrancar", {
-  NODE_ENV:            process.env.NODE_ENV,
-  FRONTEND_URL:        process.env.FRONTEND_URL,
-  API_URL:             process.env.API_URL,
-  SANDBOX:             process.env.DLOCAL_SANDBOX,
+  NODE_ENV:            process.env.NODE_ENV ?? "default",
+  FRONTEND_URL:        process.env.FRONTEND_URL ?? "default",
+  API_URL:             process.env.API_URL ?? "default",
+  SANDBOX:             process.env.DLOCAL_SANDBOX ?? "default",
   LOG_LEVEL:           process.env.LOG_LEVEL ?? "default",
   RATE_LIMIT_DISABLED: process.env.DISABLE_RATE_LIMIT === "true",
 });

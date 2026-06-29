@@ -8,6 +8,8 @@ export interface Service {
   precio: number;
   precio_hasta: number | null;
   activo: boolean;
+  /** Posición de despliegue en la página pública y en el panel — menor primero. */
+  orden: number;
   /**
    * Marca el servicio "Otros / Varios" creado automáticamente por negocio.
    * Se usa como service_id para booking_items que no corresponden a un

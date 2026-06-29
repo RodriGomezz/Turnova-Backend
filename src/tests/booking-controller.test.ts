@@ -34,7 +34,14 @@ test("createPanel creates an owner booking with the current business", async () 
       assert.deepEqual(input, {
         business_id: "biz-1",
         barber_id: "barber-1",
-        service_id: "service-1",
+        items: [
+          {
+            service_id: "service-1",
+            nombre: "Corte",
+            precio: 500,
+            duracion_minutos: 45,
+          },
+        ],
         cliente_nombre: "Juan",
         cliente_email: "juan@test.com",
         cliente_telefono: "099000000",
@@ -55,12 +62,15 @@ test("createPanel creates an owner booking with the current business", async () 
       findById: async () => ({ id: "barber-1", business_id: "biz-1", nombre: "Leo" }),
     } as never,
     {
-      findById: async () => ({
-        id: "service-1",
-        business_id: "biz-1",
-        nombre: "Corte",
-        duracion_minutos: 45,
-      }),
+      findByIds: async () => [
+        {
+          id: "service-1",
+          business_id: "biz-1",
+          nombre: "Corte",
+          precio: 500,
+          duracion_minutos: 45,
+        },
+      ],
     } as never,
     {
       findById: async () => ({
@@ -83,6 +93,12 @@ test("createPanel creates an owner booking with the current business", async () 
       sendBookingConfirmation: async () => undefined,
       sendBookingNotification: async () => undefined,
     } as never,
+    {} as never, // getAllSlotsForDaysUseCase — no usado por createPanel
+    {} as never, // modifyBookingUseCase — no usado por createPanel
+    {} as never, // cancelBookingUseCase — no usado por createPanel
+    {} as never, // addBookingItemUseCase — no usado por createPanel
+    {} as never, // removeBookingItemUseCase — no usado por createPanel
+    {} as never, // bookingTicketRepository — no usado por createPanel
   );
 
   const req = {

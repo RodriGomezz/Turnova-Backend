@@ -36,6 +36,7 @@ import { CreateBarberUseCase } from "./application/barbers/CreateBarberUseCase";
 import { CreateSubscriptionUseCase } from "./application/subscriptions/CreateSubscriptionUseCase";
 import { HandleWebhookUseCase } from "./application/subscriptions/HandleWebhookUseCase";
 import { CreateServiceUseCase } from "./application/services/CreateServiceUseCase";
+import { ReorderServicesUseCase } from "./application/services/ReorderServicesUseCase";
 
 // ── Controllers ───────────────────────────────────────────────────────────────
 import { BookingController } from "./presentation/controllers/BookingController";
@@ -123,6 +124,7 @@ export const createBusinessUseCase = new CreateBusinessUseCase(
 export const createBarberUseCase = new CreateBarberUseCase(barberRepository);
 
 export const createServiceUseCase = new CreateServiceUseCase(serviceRepository);
+export const reorderServicesUseCase = new ReorderServicesUseCase(serviceRepository);
 
 const createSubscriptionUseCase = new CreateSubscriptionUseCase(
   subscriptionRepository,
@@ -186,6 +188,7 @@ export const scheduleController = new ScheduleController(
 export const serviceController = new ServiceController(
   serviceRepository,
   createServiceUseCase,
+  reorderServicesUseCase,
 );
 
 export const subscriptionController = new SubscriptionController(

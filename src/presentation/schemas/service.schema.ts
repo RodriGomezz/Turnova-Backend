@@ -21,3 +21,9 @@ export const updateServiceSchema = serviceBaseSchema.partial().refine(
 
 export type CreateServiceInput = z.infer<typeof createServiceSchema>;
 export type UpdateServiceInput = z.infer<typeof updateServiceSchema>;
+
+export const reorderServicesSchema = z.object({
+  ordered_ids: z.array(z.string().uuid()).min(1),
+});
+
+export type ReorderServicesInput = z.infer<typeof reorderServicesSchema>;

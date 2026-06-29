@@ -3,8 +3,7 @@ import { serviceController } from "../../container";
 import { validate } from "../middlewares/validate.middleware";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { noCache } from "../middlewares/no-cache.middleware";
-import { createServiceSchema, updateServiceSchema } from "../schemas/service.schema";
-import { invalidatePublicCache } from "../middlewares/invalidate-cache.middleware";
+import { createServiceSchema, updateServiceSchema, reorderServicesSchema } from "../schemas/service.schema";
 
 const router: Router = Router();
 
@@ -15,10 +14,11 @@ router.get("/defaults", serviceController.listDefaults);
 router.use(authMiddleware);
 
 router.get("/", noCache, serviceController.list);
-router.post("/", invalidatePublicCache, validate(createServiceSchema), serviceController.create);
-router.put("/:id", invalidatePublicCache, validate(updateServiceSchema), serviceController.update);
-router.delete("/:id", invalidatePublicCache, serviceController.delete);
-router.patch("/:id/reactivate", invalidatePublicCache, serviceController.reactivate);
-router.delete("/:id/hard", invalidatePublicCache, serviceController.hardDelete);
+router.post("/", validate(createServiceSchema), serviceController.create);
+router.put("/reorder", validate(reorderServicesSchema), serviceController.reorder);
+router.put("/:id", validate(updateServiceSchema), serviceController.update);
+router.delete("/:id", serviceController.delete);
+router.patch("/:id/reactivate", serviceController.reactivate);
+router.delete("/:id/hard", serviceController.hardDelete);
 
 export default router;

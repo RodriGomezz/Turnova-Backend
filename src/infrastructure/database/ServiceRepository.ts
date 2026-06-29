@@ -69,7 +69,7 @@ export class ServiceRepository implements IServiceRepository {
       .select("*")
       .eq("business_id", businessId)
       .order("activo", { ascending: false })
-      .order("created_at", { ascending: true });
+      .order("orden", { ascending: true });
 
     if (error) throw new AppError(error.message, 500);
     return (data ?? []) as Service[];
@@ -84,6 +84,38 @@ export class ServiceRepository implements IServiceRepository {
 
     if (error) throw new AppError(error.message, 500);
     return created as Service;
+  }
+
+  async getNextOrden(businessId: string): Promise<number> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("orden")
+      .eq("business_id", businessId)
+      .order("orden", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw new AppError(error.message, 500);
+    return (data?.orden ?? -1) + 1;
+  }
+
+  async reorder(businessId: string, orderedIds: string[]): Promise<void> {
+    // Un UPDATE por fila — el volumen esperado (catálogo de servicios de un
+    // negocio) es chico (decenas, no miles), así que no justifica una RPC
+    // de batch update. Se valida pertenencia al negocio en el WHERE de
+    // cada update, no solo confiando en que el caller ya filtró: evita que
+    // alguien reordene servicios de otro negocio mandando ids ajenos.
+    const updates = orderedIds.map((id, index) =>
+      supabase
+        .from(this.table)
+        .update({ orden: index })
+        .eq("id", id)
+        .eq("business_id", businessId),
+    );
+
+    const results = await Promise.all(updates);
+    const failed = results.find((r) => r.error);
+    if (failed?.error) throw new AppError(failed.error.message, 500);
   }
 
   async update(id: string, data: Partial<Service>): Promise<Service> {

@@ -24,6 +24,8 @@ export class CreateServiceUseCase {
       throw new ValidationError("La duración debe estar entre 5 y 480 minutos");
     }
 
+    const orden = await this.serviceRepository.getNextOrden(input.business_id);
+
     return this.serviceRepository.create({
       business_id: input.business_id,
       nombre: input.nombre,
@@ -32,6 +34,7 @@ export class CreateServiceUseCase {
       duracion_minutos: input.duracion_minutos,
       precio: input.precio,
       precio_hasta: input.precio_hasta ?? null,
+      orden,
       // Los servicios creados desde este flujo (panel del dueño) nunca son
       // el genérico del negocio — ese se crea una sola vez automáticamente
       // (CreateBusinessUseCase) y está protegido por un constraint único en
