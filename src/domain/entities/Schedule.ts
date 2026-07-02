@@ -5,5 +5,7 @@ export interface Schedule {
   dia_semana: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   hora_inicio: string;
   hora_fin: string;
+  break_start: string | null;
+  break_end: string | null;
   activo: boolean;
 }

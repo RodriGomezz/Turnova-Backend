@@ -58,6 +58,8 @@ export class GetAvailableSlotsUseCase {
       this.normalizeTime(schedule.hora_fin),
       input.duracionMinutos,
       input.bufferMinutos,
+      schedule.break_start ? this.normalizeTime(schedule.break_start) : null,
+      schedule.break_end   ? this.normalizeTime(schedule.break_end)   : null,
     );
 
     return slots.map((slot) => ({
@@ -86,15 +88,31 @@ export class GetAvailableSlotsUseCase {
     horaFin: string,
     duracion: number,
     buffer: number,
+    breakStart: string | null = null,
+    breakEnd: string | null = null,
   ): TimeSlot[] {
     const slots: TimeSlot[] = [];
     const endMinutes = this.timeToMinutes(horaFin);
+    const brkStart = breakStart ? this.timeToMinutes(breakStart) : null;
+    const brkEnd   = breakEnd   ? this.timeToMinutes(breakEnd)   : null;
     let current = this.timeToMinutes(horaInicio);
 
     while (current + duracion <= endMinutes) {
+      const slotEnd = current + duracion;
+
+      // Si el slot solapa el descanso, saltar directo al fin del descanso
+      const overlapsBreak =
+        brkStart !== null && brkEnd !== null &&
+        current < brkEnd && slotEnd > brkStart;
+
+      if (overlapsBreak) {
+        current = brkEnd!;
+        continue;
+      }
+
       slots.push({
         hora_inicio: this.minutesToTime(current),
-        hora_fin: this.minutesToTime(current + duracion),
+        hora_fin: this.minutesToTime(slotEnd),
         disponible: true,
       });
       current += duracion + buffer;

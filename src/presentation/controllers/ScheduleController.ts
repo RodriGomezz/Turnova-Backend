@@ -53,6 +53,8 @@ createSchedule = async (req: Request, res: Response, next: NextFunction): Promis
       dia_semana:  input.dia_semana as 0 | 1 | 2 | 3 | 4 | 5 | 6,
       hora_inicio: input.hora_inicio,
       hora_fin:    input.hora_fin,
+      break_start: input.break_start ?? null,
+      break_end:   input.break_end ?? null,
       barber_id:   input.barber_id ?? null,
       business_id: req.businessId!,
       activo:      true,

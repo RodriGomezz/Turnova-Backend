@@ -139,6 +139,8 @@ export class GetAllSlotsForDaysUseCase {
         duracion,
         buffer,
         bookingsDelDia,
+        schedule.break_start,
+        schedule.break_end,
       );
 
       // Solo incluir días con al menos un slot libre
@@ -171,14 +173,27 @@ export class GetAllSlotsForDaysUseCase {
     duracion: number,
     buffer: number,
     bookings: Array<{ fecha: string; hora_inicio: string; hora_fin: string }>,
+    breakStart: string | null = null,
+    breakEnd: string | null = null,
   ): TimeSlot[] {
     const slots: TimeSlot[] = [];
     const end     = this.toMinutes(horaFin);
+    const brkStart = breakStart ? this.toMinutes(breakStart) : null;
+    const brkEnd   = breakEnd   ? this.toMinutes(breakEnd)   : null;
     let   current = this.toMinutes(horaInicio);
 
     while (current + duracion <= end) {
       const slotStart = current;
       const slotEnd   = current + duracion;
+
+      const overlapsBreak =
+        brkStart !== null && brkEnd !== null &&
+        slotStart < brkEnd && slotEnd > brkStart;
+
+      if (overlapsBreak) {
+        current = brkEnd!;
+        continue;
+      }
 
       const disponible = !bookings.some((b) => {
         const bStart = this.toMinutes(b.hora_inicio);

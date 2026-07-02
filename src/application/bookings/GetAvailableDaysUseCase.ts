@@ -115,6 +115,8 @@ export class GetAvailableDaysUseCase {
   ): boolean {
     const inicio = this.parseMinutes(schedule.hora_inicio);
     const fin    = this.parseMinutes(schedule.hora_fin);
+    const brkStart = schedule.break_start ? this.parseMinutes(schedule.break_start) : null;
+    const brkEnd   = schedule.break_end   ? this.parseMinutes(schedule.break_end)   : null;
 
     // Pre-parsear bookings del día para no repetir el parsing en cada slot
     const bookingsDelDia = existingBookings
@@ -127,6 +129,11 @@ export class GetAvailableDaysUseCase {
     for (let t = inicio; t + duracion <= fin; t += duracion + buffer) {
       const slotStart = t;
       const slotEnd   = t + duracion;
+
+      const overlapsBreak =
+        brkStart !== null && brkEnd !== null &&
+        slotStart < brkEnd && slotEnd > brkStart;
+      if (overlapsBreak) continue;
 
       // Usar overlap de intervalos — igual que generateSlots en GetAllSlotsForDaysUseCase.
       // El enfoque anterior comparaba hora_inicio exacta y podía marcar como disponible
