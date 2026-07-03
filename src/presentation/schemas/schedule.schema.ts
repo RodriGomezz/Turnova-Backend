@@ -26,7 +26,7 @@ export const createScheduleSchema = z.object({
     (d) => {
       const hasBreak = d.break_start && d.break_end;
       if (!hasBreak) return true;
-      return d.break_start! > d.hora_inicio && d.break_end! < d.hora_fin;
+      return d.break_start! >= d.hora_inicio && d.break_end! <= d.hora_fin;
     },
     { message: 'El descanso debe estar dentro del horario de atención', path: ['break_start'] },
   );
