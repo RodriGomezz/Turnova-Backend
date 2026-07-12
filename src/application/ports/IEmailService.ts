@@ -35,6 +35,19 @@ export interface BookingReminderPayload {
   horaInicio: string;
   cancellationToken: string;
   slug: string;
+  direccion?: string;
+  whatsapp?: string;
+}
+
+export interface BookingCancellationPayload {
+  to: string;
+  clienteNombre: string;
+  negocioNombre: string;
+  servicioNombre: string;
+  barberoNombre: string;
+  fecha: string;
+  horaInicio: string;
+  reason?: string;
 }
 
 // ── Emails de suscripción ─────────────────────────────────────────────────────
@@ -52,6 +65,7 @@ export interface PaymentFailedPayload {
   to: string;
   negocioNombre: string;
   plan: string;
+  updatePaymentUrl?: string;
 }
 
 export interface PaymentFailedGracePayload {
@@ -59,6 +73,7 @@ export interface PaymentFailedGracePayload {
   negocioNombre: string;
   plan: string;
   gracePeriodEndsAt: string;
+  updatePaymentUrl?: string;
 }
 
 // ── Puerto ────────────────────────────────────────────────────────────────────
@@ -67,6 +82,7 @@ export interface IEmailService {
   sendBookingConfirmation(payload: BookingConfirmationPayload): Promise<void>;
   sendBookingNotification(payload: BookingNotificationPayload): Promise<void>;
   sendBookingReminder(payload: BookingReminderPayload): Promise<void>;
+  sendBookingCancellation(payload: BookingCancellationPayload): Promise<void>;
   sendPaymentConfirmation(payload: PaymentConfirmationPayload): Promise<void>;
   sendPaymentFailed(payload: PaymentFailedPayload): Promise<void>;
   sendPaymentFailedGrace(payload: PaymentFailedGracePayload): Promise<void>;

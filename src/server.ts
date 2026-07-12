@@ -3,6 +3,7 @@ dotenv.config();
 import { logger } from "./infrastructure/logger";
 import { startDomainVerificationJob } from "./infrastructure/jobs/domain-verification.job";
 import { startSubscriptionExpiryJob } from "./infrastructure/jobs/subscription-expiry.job";
+import { startBookingReminderJob } from "./infrastructure/jobs/booking-reminder.job";
 
 const REQUIRED_ENV_VARS = [
   "SUPABASE_URL",
@@ -63,6 +64,7 @@ const server = app.listen(PORT, async () => {
   logger.info(`Servidor corriendo en http://localhost:${PORT}`);
   startDomainVerificationJob();
   startSubscriptionExpiryJob();
+  startBookingReminderJob();
 
   // Sincronizar URLs de todos los planes al arrancar (mensual + anual) en paralelo.
   // Promise.allSettled en lugar de Promise.all: si un plan falla, el resto continúa.

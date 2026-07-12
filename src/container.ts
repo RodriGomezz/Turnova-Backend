@@ -153,6 +153,10 @@ const modifyBookingUseCase = new ModifyBookingUseCase(
 
 const cancelBookingUseCase = new CancelBookingUseCase(
   bookingRepository,
+  bookingItemRepository,
+  businessRepository,
+  barberRepository,
+  emailService,
 );
 
 export const bookingController = new BookingController(
