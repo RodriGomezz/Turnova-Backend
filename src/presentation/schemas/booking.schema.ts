@@ -34,3 +34,9 @@ export const cerrarTicketSchema = z.object({
 });
 
 export type CerrarTicketInput = z.infer<typeof cerrarTicketSchema>;
+
+export const cancelBookingSchema = z.object({
+  reason: z.string().max(200).trim().optional(),
+});
+
+export type CancelBookingRequestInput = z.infer<typeof cancelBookingSchema>;

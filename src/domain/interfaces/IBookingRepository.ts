@@ -24,7 +24,7 @@ export interface IBookingRepository {
     from: string,
     to: string,
   ): Promise<Pick<Booking, "id" | "fecha" | "hora_inicio" | "hora_fin">[]>;
-  findPendingReminders(): Promise<Booking[]>;
+  findConfirmedUpcomingWithoutReminder(maxDays: number): Promise<Booking[]>;
   findEmailsByBusiness(
     businessId: string,
     beforeFecha: string,

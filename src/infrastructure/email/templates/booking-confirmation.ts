@@ -1,3 +1,5 @@
+import { buildPublicUrl } from "./build-public-url";
+
 interface BookingConfirmationData {
   clienteNombre: string;
   negocioNombre: string;
@@ -7,6 +9,7 @@ interface BookingConfirmationData {
   horaInicio: string;
   cancellationToken: string;
   slug: string;
+  customDomain?: string | null;
 }
 
 export function bookingConfirmationTemplate(data: BookingConfirmationData): string {
@@ -14,7 +17,10 @@ export function bookingConfirmationTemplate(data: BookingConfirmationData): stri
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
 
-  const cancelUrl = `${process.env.FRONTEND_URL ?? 'http://localhost:4200'}/${data.slug}/cancelar/${data.cancellationToken}`;
+  const cancelUrl = buildPublicUrl(
+    { slug: data.slug, custom_domain: data.customDomain },
+    `/cancelar/${data.cancellationToken}`,
+  );
 
   return `
 <!DOCTYPE html>

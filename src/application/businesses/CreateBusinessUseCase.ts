@@ -72,6 +72,7 @@ export class CreateBusinessUseCase {
       faq_items: [],
       custom_domain: null,
       dias_anticipacion: 7,
+      recordatorio_horas_antes: 24,
       ciudad: null,
       pais: null,
     });

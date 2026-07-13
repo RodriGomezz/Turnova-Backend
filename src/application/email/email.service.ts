@@ -1,4 +1,4 @@
-import { resend, EMAIL_FROM } from "../../infrastructure/email/resend.client";
+import { resend, EMAIL_FROM, businessEmailFrom } from "../../infrastructure/email/resend.client";
 import { bookingConfirmationTemplate } from "../../infrastructure/email/templates/booking-confirmation";
 import { bookingReminderTemplate } from "../../infrastructure/email/templates/booking-reminder";
 import { bookingNotificationTemplate } from "../../infrastructure/email/templates/booking-notification";
@@ -21,7 +21,7 @@ import {
 export class EmailService implements IEmailService {
   async sendBookingConfirmation(data: BookingConfirmationPayload): Promise<void> {
     await resend.emails.send({
-      from: EMAIL_FROM,
+      from: businessEmailFrom(data.negocioNombre),
       to: data.to,
       subject: `Turno confirmado en ${data.negocioNombre} - ${data.horaInicio}`,
       html: bookingConfirmationTemplate(data),
@@ -34,7 +34,7 @@ export class EmailService implements IEmailService {
 
   async sendBookingReminder(data: BookingReminderPayload): Promise<void> {
     await resend.emails.send({
-      from: EMAIL_FROM,
+      from: businessEmailFrom(data.negocioNombre),
       to: data.to,
       subject: `Recordatorio: tu turno en ${data.negocioNombre} es mañana`,
       html: bookingReminderTemplate(data),
@@ -60,7 +60,7 @@ export class EmailService implements IEmailService {
 
   async sendBookingCancellation(data: BookingCancellationPayload): Promise<void> {
     await resend.emails.send({
-      from: EMAIL_FROM,
+      from: businessEmailFrom(data.negocioNombre),
       to: data.to,
       subject: `Tu turno en ${data.negocioNombre} fue cancelado`,
       html: bookingCancellationTemplate(data),

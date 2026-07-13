@@ -756,7 +756,7 @@ export class BookingController {
 
   private sendEmailsAsync(params: {
     booking: { cliente_email: string; cliente_nombre: string; fecha: string; hora_inicio: string; hora_fin: string; cancellation_token: string };
-    business: { nombre: string; email: string | null; slug: string };
+    business: { nombre: string; email: string | null; slug: string; custom_domain: string | null };
     services: Service[];
     barber: { nombre: string };
   }): void {
@@ -777,6 +777,7 @@ export class BookingController {
         horaInicio: horaInicioFmt,
         cancellationToken: booking.cancellation_token,
         slug: business.slug,
+        customDomain: business.custom_domain,
       }),
       // Notificar al dueño solo si tiene email configurado, para evitar rebotes y saturación de logs
       // ...(business.email

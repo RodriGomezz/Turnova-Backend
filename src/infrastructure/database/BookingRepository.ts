@@ -87,15 +87,33 @@ export class BookingRepository implements IBookingRepository {
     return (data ?? []) as Pick<Booking, "id" | "fecha" | "hora_inicio" | "hora_fin">[];
   }
 
-  async findPendingReminders(): Promise<Booking[]> {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const fecha = tomorrow.toISOString().split("T")[0];
+  // Trae candidatos a recordatorio dentro de una ventana de días — el
+  // cálculo exacto de "faltan N horas" (donde N es configurable por
+  // negocio vía recordatorio_horas_antes) se hace en el job, no acá, porque
+  // acá no tenemos el dato de configuración del negocio sin un join. maxDays
+  // debe cubrir el máximo configurable (72hs = 3 días) con margen.
+  async findConfirmedUpcomingWithoutReminder(maxDays: number): Promise<Booking[]> {
+    // Ensanchamos el rango un día de cada lado a propósito: calcular el
+    // límite exacto de "hoy" con .toISOString() da la fecha en UTC, que
+    // puede diferir de la fecha calendario local (en Montevideo, UTC-3,
+    // a partir de las 21:00 locales UTC ya cruzó al día siguiente). En vez
+    // de perseguir ese borde con precisión acá, lo ensanchamos y dejamos que
+    // el cálculo exacto de "-N horas" en el job (isDue) haga el filtro real.
+    const today = new Date();
+
+    const desde = new Date(today);
+    desde.setDate(desde.getDate() - 1);
+    const desdeStr = desde.toISOString().split("T")[0];
+
+    const hasta = new Date(today);
+    hasta.setDate(hasta.getDate() + maxDays + 1);
+    const hastaStr = hasta.toISOString().split("T")[0];
 
     const { data, error } = await supabase
       .from(this.table)
       .select("*")
-      .eq("fecha", fecha)
+      .gte("fecha", desdeStr)
+      .lte("fecha", hastaStr)
       .eq("estado", "confirmada")
       .is("reminder_sent_at", null);
 

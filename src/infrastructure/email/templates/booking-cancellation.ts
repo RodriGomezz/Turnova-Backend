@@ -1,3 +1,5 @@
+import { escapeHtml } from "./escape-html";
+
 interface BookingCancellationData {
   clienteNombre: string;
   negocioNombre: string;
@@ -43,7 +45,7 @@ export function bookingCancellationTemplate(data: BookingCancellationData): stri
           <tr>
             <td style="background:#fff;padding:40px;">
               <p style="margin:0 0 24px;font-size:15px;color:#0A0A0A;">
-                Hola <strong>${data.clienteNombre}</strong>, tu turno en <strong>${data.negocioNombre}</strong> fue cancelado por el negocio.
+                Hola <strong>${escapeHtml(data.clienteNombre)}</strong>, tu turno en <strong>${escapeHtml(data.negocioNombre)}</strong> fue cancelado por el negocio.
               </p>
 
               <!-- DETALLE -->
@@ -51,13 +53,13 @@ export function bookingCancellationTemplate(data: BookingCancellationData): stri
                 <tr>
                   <td style="padding:8px 0;border-bottom:1px solid #E5E1D8;">
                     <span style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#6B7280;">Servicio</span><br/>
-                    <span style="font-size:15px;font-weight:600;color:#0A0A0A;">${data.servicioNombre}</span>
+                    <span style="font-size:15px;font-weight:600;color:#0A0A0A;">${escapeHtml(data.servicioNombre)}</span>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:8px 0;border-bottom:1px solid #E5E1D8;">
                     <span style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#6B7280;">Barbero</span><br/>
-                    <span style="font-size:15px;font-weight:600;color:#0A0A0A;">${data.barberoNombre}</span>
+                    <span style="font-size:15px;font-weight:600;color:#0A0A0A;">${escapeHtml(data.barberoNombre)}</span>
                   </td>
                 </tr>
                 <tr>
@@ -70,7 +72,7 @@ export function bookingCancellationTemplate(data: BookingCancellationData): stri
                 <tr>
                   <td style="padding:8px 0;">
                     <span style="font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#6B7280;">Motivo</span><br/>
-                    <span style="font-size:15px;color:#0A0A0A;">${data.reason}</span>
+                    <span style="font-size:15px;color:#0A0A0A;">${escapeHtml(data.reason)}</span>
                   </td>
                 </tr>` : ''}
               </table>
@@ -85,7 +87,7 @@ export function bookingCancellationTemplate(data: BookingCancellationData): stri
           <tr>
             <td style="background:#F5F2EC;border-radius:0 0 12px 12px;padding:20px 40px;text-align:center;">
               <p style="margin:0;font-size:11px;color:#9CA3AF;">
-                Este email fue enviado por <a href="https://kronu.pro" style="color:#C9A84C;text-decoration:none;">Kronu</a> en nombre de ${data.negocioNombre}.
+                Este email fue enviado por <a href="https://kronu.pro" style="color:#C9A84C;text-decoration:none;">Kronu</a> en nombre de ${escapeHtml(data.negocioNombre)}.
               </p>
             </td>
           </tr>

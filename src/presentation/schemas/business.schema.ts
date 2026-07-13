@@ -36,6 +36,7 @@ export const updateBusinessSchema = z.object({
   fotos_galeria: z.array(z.string().url()).max(8).nullable().optional(),
   faq_items: z.array(faqItemSchema).max(8).nullable().optional(),
   dias_anticipacion: z.number().int().min(1).max(365).optional(), 
+  recordatorio_horas_antes: z.number().int().min(1).max(72).optional(),
   ciudad: z.string().max(50).nullable().optional(),
   pais: z.string().max(50).nullable().optional(),
 });

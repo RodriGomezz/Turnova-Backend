@@ -10,6 +10,7 @@ export interface BookingConfirmationPayload {
   horaInicio: string;
   cancellationToken: string;
   slug: string;
+  customDomain?: string | null;
 }
 
 export interface BookingNotificationPayload {
@@ -37,6 +38,8 @@ export interface BookingReminderPayload {
   slug: string;
   direccion?: string;
   whatsapp?: string;
+  diasFaltantes: number;
+  customDomain?: string | null;
 }
 
 export interface BookingCancellationPayload {

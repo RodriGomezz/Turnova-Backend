@@ -1,3 +1,5 @@
+import { buildPublicUrl } from "./build-public-url";
+
 interface BookingReminderData {
   clienteNombre: string;
   negocioNombre: string;
@@ -9,6 +11,8 @@ interface BookingReminderData {
   slug: string;
   direccion?: string;
   whatsapp?: string;
+  diasFaltantes: number;
+  customDomain?: string | null;
 }
 
 export function bookingReminderTemplate(data: BookingReminderData): string {
@@ -16,7 +20,20 @@ export function bookingReminderTemplate(data: BookingReminderData): string {
     weekday: 'long', day: 'numeric', month: 'long',
   });
 
-  const cancelUrl = `${process.env.FRONTEND_URL ?? 'http://localhost:4200'}/${data.slug}/cancelar/${data.cancellationToken}`;
+  const cancelUrl = buildPublicUrl(
+    { slug: data.slug, custom_domain: data.customDomain },
+    `/cancelar/${data.cancellationToken}`,
+  );
+
+  // "Mañana" solo es correcto cuando el turno es literalmente al día
+  // siguiente. Con recordatorio_horas_antes configurable por negocio, el
+  // recordatorio puede salir el mismo día o varios días antes — el texto
+  // tiene que reflejar eso, no asumirlo fijo.
+  const cuando = data.diasFaltantes <= 0
+    ? 'hoy'
+    : data.diasFaltantes === 1
+      ? 'mañana'
+      : `en ${data.diasFaltantes} días`;
 
   return `
 <!DOCTYPE html>
@@ -39,7 +56,7 @@ export function bookingReminderTemplate(data: BookingReminderData): string {
                 RECORDATORIO
               </p>
               <h1 style="margin:8px 0 0;font-size:28px;font-weight:400;color:#0A0A0A;letter-spacing:-1px;">
-                Tu turno es mañana
+                Tu turno es ${cuando}
               </h1>
             </td>
           </tr>
@@ -48,7 +65,7 @@ export function bookingReminderTemplate(data: BookingReminderData): string {
           <tr>
             <td style="background:#fff;padding:40px;">
               <p style="margin:0 0 24px;font-size:15px;color:#0A0A0A;">
-                Hola <strong>${data.clienteNombre}</strong>, te recordamos que mañana tenés turno en <strong>${data.negocioNombre}</strong>.
+                Hola <strong>${data.clienteNombre}</strong>, te recordamos tu turno en <strong>${data.negocioNombre}</strong>, ${cuando}.
               </p>
 
               <table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F2EC;border-radius:10px;padding:24px;margin-bottom:24px;">
