@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import sharp from "sharp";
 import { supabase }          from "../../infrastructure/database/supabase.client";
 import { BarberRepository }  from "../../infrastructure/database/BarberRepository";
 import { BusinessRepository } from "../../infrastructure/database/BusinessRepository";
@@ -17,12 +18,43 @@ function isAllowedAssetType(value: string): value is AssetType {
   return (ALLOWED_ASSET_TYPES as readonly string[]).includes(value);
 }
 
-// ── MIME → extensión permitida ────────────────────────────────────────────────
-const MIME_TO_EXT: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png":  "png",
-  "image/webp": "webp",
+function assetTypeToImageKind(type: AssetType): ImageKind {
+  if (type === "logo") return "logo";
+  if (type === "hero") return "hero";
+  return "gallery"; // gallery-0..gallery-7
+}
+
+// ── Resize/compresión en el momento de subida ─────────────────────────────────
+// Sin Supabase Image Transformations (requiere plan Pro), servir la imagen tal
+// cual la sube el usuario significa mandar el archivo completo de la cámara del
+// celular (fácil 3-8MB) aunque se muestre como un thumbnail chico en un grid.
+// Se resuelve acá, una sola vez por subida, no en cada visita. Todo se
+// convierte a webp independientemente del formato de entrada — mejor
+// compresión que jpg/png a igual calidad percibida.
+type ImageKind = "logo" | "hero" | "gallery" | "barber";
+
+const RESIZE_CONFIG: Record<ImageKind, { width: number; height: number | null; fit: "cover" | "inside" }> = {
+  logo:    { width: 400,  height: 400, fit: "cover" },  // logo cuadrado, mismo tamaño en todos lados
+  hero:    { width: 1920, height: null, fit: "inside" }, // fondo full-bleed, no hace falta más que ancho de pantalla
+  gallery: { width: 1600, height: null, fit: "inside" }, // sirve tanto para el grid como para el lightbox
+  barber:  { width: 500,  height: 500, fit: "cover" },  // headshot, tamaño fijo chico
 };
+
+async function processImage(buffer: Buffer, kind: ImageKind): Promise<Buffer> {
+  const cfg = RESIZE_CONFIG[kind];
+  try {
+    return await sharp(buffer)
+      .rotate() // respeta el EXIF orientation antes de resizear (fotos de celular vienen rotadas seguido)
+      .resize(cfg.width, cfg.height, { fit: cfg.fit, withoutEnlargement: true })
+      .webp({ quality: 80 })
+      .toBuffer();
+  } catch (err) {
+    logger.warn("No se pudo procesar la imagen subida (¿archivo corrupto?)", {
+      error: err instanceof Error ? err.message : err,
+    });
+    throw new ValidationError("El archivo de imagen parece estar dañado o no es una imagen válida.");
+  }
+}
 
 // CACHE-BUSTING: antes el path era fijo (ej: `barbers/${barberId}.${ext}`) y se
 // sobreescribía con upsert:true en cada subida. Eso significa que la URL pública
@@ -114,10 +146,11 @@ export const uploadController = {
       throw new ForbiddenError();
     }
 
-    const ext = MIME_TO_EXT[file.mimetype];
+    const processedBuffer = await processImage(file.buffer, "barber");
 
-    // Path único por subida — ver nota de CACHE-BUSTING arriba.
-    const path = `barbers/${barberId}-${Date.now()}.${ext}`;
+    // Path único por subida — ver nota de CACHE-BUSTING arriba. Siempre .webp:
+    // todo pasa por processImage(), que reconvierte cualquier formato de entrada.
+    const path = `barbers/${barberId}-${Date.now()}.webp`;
 
     // Path del archivo anterior (si existía), para borrarlo después de que
     // la subida nueva se confirme. Se calcula ANTES de subir porque depende
@@ -126,8 +159,8 @@ export const uploadController = {
 
     const { error } = await supabase.storage
       .from("photos")
-      .upload(path, file.buffer, {
-        contentType: file.mimetype,
+      .upload(path, processedBuffer, {
+        contentType: "image/webp",
         cacheControl: IMMUTABLE_CACHE_CONTROL,
         // upsert ya no es necesario: el path es nuevo en cada subida y nunca
         // colisiona con uno existente. Se deja en false explícito para que
@@ -220,10 +253,11 @@ export const uploadController = {
       );
     }
 
-    const ext = MIME_TO_EXT[file.mimetype];
+    const imageKind = assetTypeToImageKind(type as AssetType);
+    const processedBuffer = await processImage(file.buffer, imageKind);
 
-    // Path único por subida — ver nota de CACHE-BUSTING arriba.
-    const path = `business/${req.businessId!}/${type}-${Date.now()}.${ext}`;
+    // Path único por subida — ver nota de CACHE-BUSTING arriba. Siempre .webp.
+    const path = `business/${req.businessId!}/${type}-${Date.now()}.webp`;
 
     // Path del asset anterior (si existía), para borrarlo después de que la
     // subida nueva se confirme. type ya pasó por isAllowedAssetType arriba,
@@ -234,8 +268,8 @@ export const uploadController = {
 
     const { error } = await supabase.storage
       .from("photos")
-      .upload(path, file.buffer, {
-        contentType: file.mimetype,
+      .upload(path, processedBuffer, {
+        contentType: "image/webp",
         cacheControl: IMMUTABLE_CACHE_CONTROL,
         upsert: false,
       });
