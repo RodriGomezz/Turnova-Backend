@@ -66,7 +66,7 @@ export class CreateBusinessUseCase {
       instagram: null,
       facebook: null,
       tipografia: "clasica",
-      estilo_cards: "minimalista",
+      estilo_cards: "destacado",
       horario_texto: null,
       fotos_galeria: [],
       faq_items: [],
