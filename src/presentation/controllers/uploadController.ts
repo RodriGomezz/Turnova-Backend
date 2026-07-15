@@ -37,7 +37,7 @@ const RESIZE_CONFIG: Record<ImageKind, { width: number; height: number | null; f
   logo:    { width: 400,  height: 400, fit: "cover" },  // logo cuadrado, mismo tamaño en todos lados
   hero:    { width: 1920, height: null, fit: "inside" }, // fondo full-bleed, no hace falta más que ancho de pantalla
   gallery: { width: 1600, height: null, fit: "inside" }, // sirve tanto para el grid como para el lightbox
-  barber:  { width: 500,  height: 500, fit: "cover" },  // headshot, tamaño fijo chico
+  barber: { width: 600, height: 800, fit: "cover" },  // headshot, tamaño fijo chico
 };
 
 async function processImage(buffer: Buffer, kind: ImageKind): Promise<Buffer> {
