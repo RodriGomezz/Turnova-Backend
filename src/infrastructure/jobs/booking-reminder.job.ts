@@ -123,6 +123,24 @@ export async function sendPendingReminders(): Promise<void> {
         continue;
       }
 
+      // La ventana de aviso (recordatorio_horas_antes) ya había pasado en
+      // el momento mismo de crear la reserva — ej: cliente agenda con 5hs
+      // de anticipación y el negocio pide avisar 24hs antes. Sin este check,
+      // dueAt queda en el pasado y el job lo interpreta como "atrasado,
+      // mandalo ya" en vez de "nunca debió mandarse". Se marca como enviado
+      // para no reprocesarlo, sin llamar a emailService.
+      const createdAt = new Date(booking.created_at);
+      if (dueAt.getTime() < createdAt.getTime()) {
+        logger.debug("Recordatorio omitido: reserva creada después de la ventana de aviso", {
+          bookingId: booking.id,
+          dueAt: dueAt.toISOString(),
+          createdAt: createdAt.toISOString(),
+          horasAntes,
+        });
+        await bookingRepository.markReminderSent(booking.id);
+        continue;
+      }
+
       if (now.getTime() < dueAt.getTime()) continue;
 
       const [barber, items] = await Promise.all([
