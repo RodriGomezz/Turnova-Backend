@@ -1,5 +1,14 @@
 const BASE_DOMAIN = process.env.BASE_DOMAIN ?? "kronu.pro";
-const IS_PROD = process.env.NODE_ENV === "production";
+
+// Antes: `const IS_PROD = process.env.NODE_ENV === "production"`.
+// Mismo problema que SEC-007 (ver errorHandler.middleware.ts): si NODE_ENV
+// no está seteado (o tiene cualquier otro valor, p.ej. "staging") en el
+// deploy, el default caía silenciosamente en la rama de desarrollo y el
+// link de cancelación/confirmación que le llega al cliente por email queda
+// roto (http://slug.dominio:4200/...), sin que nadie se entere hasta que
+// un cliente hace click. Se invierte el default: el fallback seguro es la
+// URL pública real; el modo dev con :4200 requiere opt-in explícito.
+const IS_LOCAL_DEV = process.env.LOCAL_DEV === "true";
 
 /**
  * Arma la URL pública de un negocio (página de reserva, cancelación, etc).
@@ -23,7 +32,7 @@ export function buildPublicUrl(
     return `https://${business.custom_domain}${cleanPath}`;
   }
 
-  if (!IS_PROD) {
+  if (IS_LOCAL_DEV) {
     return `http://${business.slug}.${BASE_DOMAIN}:4200${cleanPath}`;
   }
 
