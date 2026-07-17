@@ -1,6 +1,8 @@
 import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
 import { IScheduleRepository } from "../../domain/interfaces/IScheduleRepository";
 import { IBlockedDateRepository } from "../../domain/interfaces/IBlockedDateRepository";
+import { IBarberRepository } from "../../domain/interfaces/IBarberRepository";
+import { computeActiveBlocks, activeBlocksCollide, BookingItemInput } from "../../domain/booking-scheduling";
 
 export interface GetAvailableSlotsInput {
   barberId: string;
@@ -9,6 +11,14 @@ export interface GetAvailableSlotsInput {
   duracionMinutos: number;
   bufferMinutos: number;
   excludeBookingId?: string;
+  /**
+   * Items del servicio/combo que se está por reservar, con sus fases
+   * (aplicación / procesamiento / acabado). Si se omite, se asume un único
+   * item activo de duracionMinutos completo (comportamiento actual, sin
+   * fases) — así ningún llamador existente tiene que cambiar para seguir
+   * funcionando igual que hoy.
+   */
+  items?: BookingItemInput[];
 }
 
 export interface TimeSlot {
@@ -24,14 +34,13 @@ export class GetAvailableSlotsUseCase {
     private readonly bookingRepository: IBookingRepository,
     private readonly scheduleRepository: IScheduleRepository,
     private readonly blockedDateRepository: IBlockedDateRepository,
+    private readonly barberRepository: IBarberRepository,
   ) {}
 
   async execute(input: GetAvailableSlotsInput): Promise<TimeSlot[]> {
     const diaSemana = this.parseDiaSemana(input.fecha);
 
-    // PERF-001: las 3 queries son independientes — se lanzan en paralelo.
-    // Antes: ~60ms en serie. Ahora: ~20ms (el más lento de los 3).
-    const [isBlocked, schedule, existingBookings] = await Promise.all([
+    const [isBlocked, schedule, existingBookings, barber] = await Promise.all([
       this.blockedDateRepository.isBlocked(
         input.businessId,
         input.barberId,
@@ -46,6 +55,7 @@ export class GetAvailableSlotsUseCase {
         input.barberId,
         input.fecha,
       ),
+      this.barberRepository.findById(input.barberId),
     ]);
 
     if (isBlocked || !schedule) return [];
@@ -62,18 +72,36 @@ export class GetAvailableSlotsUseCase {
       schedule.break_end   ? this.normalizeTime(schedule.break_end)   : null,
     );
 
-    return slots.map((slot) => ({
-      ...slot,
-      disponible: !this.isSlotTaken(slot, bookings),
+    const capacidadSillas = barber?.capacidad_sillas ?? 1;
+
+    if (capacidadSillas <= 1) {
+      return slots.map((slot) => ({
+        ...slot,
+        disponible: !this.isSlotTaken(slot, bookings),
+      }));
+    }
+
+    const activeBlocks = await this.bookingRepository.findActiveBlocksByBarberAndDate(
+      input.barberId,
+      input.fecha,
+      input.excludeBookingId,
+    );
+    const activeBlocksMinutos = activeBlocks.map((b) => ({
+      start: this.timeToMinutes(b.hora_inicio),
+      end: this.timeToMinutes(b.hora_fin),
     }));
+
+    const candidateItems: BookingItemInput[] =
+      input.items ?? [{ orden: 0, duracion_minutos: input.duracionMinutos }];
+
+    return slots.map((slot) => {
+      const slotStart = this.timeToMinutes(slot.hora_inicio);
+      const sillaLibre = this.haySillaLibre(slot, bookings, capacidadSillas);
+      const barberoLibre = !activeBlocksCollide(slotStart, candidateItems, activeBlocksMinutos);
+      return { ...slot, disponible: sillaLibre && barberoLibre };
+    });
   }
 
-  // ── Helpers privados ──────────────────────────────────────────────────────
-
-  /**
-   * Parsea la fecha como fecha local para evitar bugs de timezone.
-   * "2025-01-15" → Date(2025, 0, 15) → .getDay()
-   */
   private parseDiaSemana(fecha: string): DiaSemana {
     const [year, month, day] = fecha.split("-").map(Number);
     return new Date(year, month - 1, day).getDay() as DiaSemana;
@@ -99,8 +127,6 @@ export class GetAvailableSlotsUseCase {
 
     while (current + duracion <= endMinutes) {
       const slotEnd = current + duracion;
-
-      // Si el slot solapa el descanso, saltar directo al fin del descanso
       const overlapsBreak =
         brkStart !== null && brkEnd !== null &&
         current < brkEnd && slotEnd > brkStart;
@@ -133,6 +159,23 @@ export class GetAvailableSlotsUseCase {
       const bookingEnd = this.timeToMinutes(booking.hora_fin);
       return slotStart < bookingEnd && slotEnd > bookingStart;
     });
+  }
+
+  private haySillaLibre(
+    slot: TimeSlot,
+    bookings: Array<{ hora_inicio: string; hora_fin: string }>,
+    capacidadSillas: number,
+  ): boolean {
+    const slotStart = this.timeToMinutes(slot.hora_inicio);
+    const slotEnd = this.timeToMinutes(slot.hora_fin);
+
+    const sillasOcupadas = bookings.filter((booking) => {
+      const bookingStart = this.timeToMinutes(booking.hora_inicio);
+      const bookingEnd = this.timeToMinutes(booking.hora_fin);
+      return slotStart < bookingEnd && slotEnd > bookingStart;
+    }).length;
+
+    return sillasOcupadas < capacidadSillas;
   }
 
   private timeToMinutes(time: string): number {

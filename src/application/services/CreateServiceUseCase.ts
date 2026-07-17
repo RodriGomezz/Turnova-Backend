@@ -10,6 +10,8 @@ export interface CreateServiceInput {
   duracion_minutos: number;
   precio: number;
   precio_hasta?: number | null;
+  tiempo_activo_inicial_minutos?: number;
+  tiempo_procesamiento_minutos?: number;
 }
 
 export class CreateServiceUseCase {
@@ -24,6 +26,17 @@ export class CreateServiceUseCase {
       throw new ValidationError("La duración debe estar entre 5 y 480 minutos");
     }
 
+    // Default 0 = todo el servicio es activo, sin ventana de procesamiento
+    // (comportamiento actual, sin cambios para quien no configura esto).
+    const tiempoActivoInicial = input.tiempo_activo_inicial_minutos ?? input.duracion_minutos;
+    const tiempoProcesamiento = input.tiempo_procesamiento_minutos ?? 0;
+
+    if (tiempoActivoInicial + tiempoProcesamiento > input.duracion_minutos) {
+      throw new ValidationError(
+        "tiempo_activo_inicial_minutos + tiempo_procesamiento_minutos no puede superar duracion_minutos",
+      );
+    }
+
     const orden = await this.serviceRepository.getNextOrden(input.business_id);
 
     return this.serviceRepository.create({
@@ -34,6 +47,8 @@ export class CreateServiceUseCase {
       duracion_minutos: input.duracion_minutos,
       precio: input.precio,
       precio_hasta: input.precio_hasta ?? null,
+      tiempo_activo_inicial_minutos: tiempoActivoInicial,
+      tiempo_procesamiento_minutos: tiempoProcesamiento,
       orden,
       // Los servicios creados desde este flujo (panel del dueño) nunca son
       // el genérico del negocio — ese se crea una sola vez automáticamente

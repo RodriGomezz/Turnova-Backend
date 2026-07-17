@@ -2,11 +2,13 @@ import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
 import { IScheduleRepository } from "../../domain/interfaces/IScheduleRepository";
 import { IBlockedDateRepository } from "../../domain/interfaces/IBlockedDateRepository";
 import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
+import { IBarberRepository } from "../../domain/interfaces/IBarberRepository";
 import { Booking } from "../../domain/entities/Booking";
 import { Service } from "../../domain/entities/Service";
 import { AppError, NotFoundError, ConflictError, ForbiddenError } from "../../domain/errors";
 import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
 import { logger } from "../../infrastructure/logger";
+import { activeBlocksCollide, BookingItemInput } from "../../domain/booking-scheduling";
 
 export interface ModifyBookingInput {
   bookingId:  string;
@@ -35,6 +37,7 @@ export class ModifyBookingUseCase {
     private readonly scheduleRepository: IScheduleRepository,
     private readonly blockedDateRepository: IBlockedDateRepository,
     private readonly serviceRepository: IServiceRepository,
+    private readonly barberRepository: IBarberRepository,
   ) {}
 
   async execute(input: ModifyBookingInput): Promise<Booking> {
@@ -82,7 +85,7 @@ export class ModifyBookingUseCase {
       | 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
     // Verificar que el nuevo slot está disponible
-    const [isBlocked, schedule, existingBookings] = await Promise.all([
+    const [isBlocked, schedule, existingBookings, targetBarber] = await Promise.all([
       this.blockedDateRepository.isBlocked(input.businessId, targetBarberId, input.fecha),
       this.scheduleRepository.findForBarber(
         input.businessId,
@@ -90,6 +93,7 @@ export class ModifyBookingUseCase {
         diaSemana,
       ),
       this.bookingRepository.findByBarberAndDate(targetBarberId, input.fecha),
+      this.barberRepository.findById(targetBarberId),
     ]);
 
     if (isBlocked) throw new AppError("El profesional no trabaja ese día", 400);
@@ -97,35 +101,67 @@ export class ModifyBookingUseCase {
 
     const startMin = this.toMin(input.horaInicio);
     const endMin   = this.toMin(horaFinEfectiva);
+    const capacidadSillas = targetBarber?.capacidad_sillas ?? 1;
 
-    // Verificar colisión — excluir la misma reserva que se está modificando
-    const collision = existingBookings.some((b) => {
-      if (b.id === input.bookingId) return false;
-      if (b.estado === "cancelada")  return false;
-      const bStart = this.toMin(b.hora_inicio);
-      const bEnd   = this.toMin(b.hora_fin);
-      return startMin < bEnd && endMin > bStart;
-    });
+    // Otras reservas del mismo barbero ese día, sin contar la que se está modificando.
+    const otras = existingBookings.filter(
+      (b) => b.id !== input.bookingId && b.estado !== "cancelada",
+    );
+
+    let collision: boolean;
+
+    if (capacidadSillas <= 1) {
+      // Camino idéntico al de siempre: cualquier solapamiento de rango
+      // completo es colisión. Cero cambio de comportamiento.
+      collision = otras.some((b) => {
+        const bStart = this.toMin(b.hora_inicio);
+        const bEnd   = this.toMin(b.hora_fin);
+        return startMin < bEnd && endMin > bStart;
+      });
+    } else {
+      // Con más de una silla: hay colisión solo si (a) no queda silla libre
+      // en todo el rango, o (b) el tiempo de atención activa del nuevo
+      // combo choca con el de otra reserva — mismo criterio que
+      // GetAvailableSlotsUseCase, necesario acá porque este use case no
+      // pasa por ese buscador de slots (edita una reserva ya existente).
+      const sillasOcupadas = otras.filter((b) => {
+        const bStart = this.toMin(b.hora_inicio);
+        const bEnd   = this.toMin(b.hora_fin);
+        return startMin < bEnd && endMin > bStart;
+      }).length;
+      const sinSillaLibre = sillasOcupadas >= capacidadSillas;
+
+      const itemsParaChequeo: BookingItemInput[] =
+        nuevosServicios.length > 0
+          ? nuevosServicios.map((s, index) => ({
+              orden: index,
+              duracion_minutos: s.duracion_minutos,
+              tiempo_activo_inicial_minutos: s.tiempo_activo_inicial_minutos,
+              tiempo_procesamiento_minutos: s.tiempo_procesamiento_minutos,
+            }))
+          : (await this.bookingRepository.findItemsByBookingId(booking.id)).map((it) => ({
+              orden: it.orden,
+              duracion_minutos: it.duracion_minutos,
+              tiempo_activo_inicial_minutos: it.tiempo_activo_inicial_minutos,
+              tiempo_procesamiento_minutos: it.tiempo_procesamiento_minutos,
+            }));
+
+      const activeBlocks = await this.bookingRepository.findActiveBlocksByBarberAndDate(
+        targetBarberId,
+        input.fecha,
+        input.bookingId,
+      );
+      const activeBlocksMinutos = activeBlocks.map((b) => ({
+        start: this.toMin(b.hora_inicio),
+        end: this.toMin(b.hora_fin),
+      }));
+      const barberoChoca = activeBlocksCollide(startMin, itemsParaChequeo, activeBlocksMinutos);
+
+      collision = sinSillaLibre || barberoChoca;
+    }
 
     if (collision) {
       throw new ConflictError("El horario seleccionado ya está ocupado");
-    }
-
-    // Si se reemplaza el combo, replaceItems hace DELETE+INSERT de
-    // booking_items y UPDATE de hora_fin en una sola transacción — el
-    // constraint bookings_no_overlap se evalúa ahí mismo como red de
-    // seguridad final, aunque ya verificamos colisión arriba en código.
-    if (nuevosServicios.length > 0) {
-      await this.bookingRepository.replaceItems(
-        input.bookingId,
-        horaFinEfectiva,
-        nuevosServicios.map((s) => ({
-          service_id: s.id,
-          nombre: s.nombre,
-          precio: s.precio,
-          duracion_minutos: s.duracion_minutos,
-        })),
-      );
     }
 
     // booking.service_id es opcional/deprecado desde que las reservas
@@ -134,9 +170,8 @@ export class ModifyBookingUseCase {
     // existiendo en paralelo (Fase 3-5 del plan de migración), modify()
     // todavía requiere service_id como string — si la reserva no lo tiene
     // (fue creada vía createWithItems), se usa el primer servicio de sus
-    // booking_items (ya actualizados arriba, si correspondía) como
-    // equivalente. Esto solo afecta a esta columna legacy: no vuelve a
-    // tocar los booking_items reales de la reserva.
+    // booking_items actuales como equivalente. Esto solo afecta a esta
+    // columna legacy: no toca los booking_items reales de la reserva.
     const fallbackServiceId = nuevosServicios[0]?.id
       ?? booking.service_id
       ?? (await this.bookingRepository.findItemsByBookingId(booking.id))[0]?.service_id;
@@ -148,6 +183,11 @@ export class ModifyBookingUseCase {
       );
     }
 
+    // IMPORTANTE: modify() va PRIMERO. bookings_no_overlap_por_silla se
+    // evalúa acá mismo, como red de seguridad final para el rango real que
+    // va a ocupar la reserva (fecha/hora/barbero nuevos) — aunque ya
+    // verificamos colisión arriba en código, esto protege contra una
+    // condición de carrera de último milisegundo.
     const updated = await this.bookingRepository.modify(input.bookingId, {
       fecha:       input.fecha,
       hora_inicio: input.horaInicio,
@@ -157,6 +197,38 @@ export class ModifyBookingUseCase {
       estado:      booking.estado === "confirmada" ? "confirmada" : "pendiente",
       modified_at: new Date().toISOString(),
     });
+
+    // Los booking_active_blocks tienen que quedar anclados al horario NUEVO
+    // (recién confirmado arriba), no al viejo. Dos casos:
+    if (nuevosServicios.length > 0) {
+      // Se reemplaza el combo: replaceItems hace DELETE+INSERT de
+      // booking_items y regenera los bloques activos en el mismo paso —
+      // como modify() ya corrió, lee fecha/hora_inicio/barber_id ya
+      // actualizados de la fila de bookings.
+      await this.bookingRepository.replaceItems(
+        input.bookingId,
+        horaFinEfectiva,
+        nuevosServicios.map((s, index) => ({
+          service_id: s.id,
+          nombre: s.nombre,
+          precio: s.precio,
+          duracion_minutos: s.duracion_minutos,
+          orden: index,
+          tiempo_activo_inicial_minutos: s.tiempo_activo_inicial_minutos,
+          tiempo_procesamiento_minutos: s.tiempo_procesamiento_minutos,
+        })),
+      );
+    } else if (
+      input.fecha !== booking.fecha ||
+      input.horaInicio !== booking.hora_inicio ||
+      targetBarberId !== booking.barber_id
+    ) {
+      // Se reprograma (fecha/hora/barbero) sin tocar el combo de servicios.
+      // Sin esto, los bloques activos quedarían apuntando al horario y
+      // barbero VIEJOS — el mismo tipo de "bloque fantasma" que dejaba
+      // huérfano no cancelar bien un turno (ver BookingRepository.cancel).
+      await this.bookingRepository.regenerateActiveBlocks(input.bookingId);
+    }
 
     invalidateSlotsCache(input.businessId);
 

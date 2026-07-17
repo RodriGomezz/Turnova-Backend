@@ -4,6 +4,7 @@ import { IBookingTicketRepository } from "../../domain/interfaces/IBookingTicket
 import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
 import { Booking, BookingItem } from "../../domain/entities/Booking";
 import { NotFoundError, ConflictError } from "../../domain/errors";
+import { computeActiveBlocks } from "../../domain/booking-scheduling";
 
 export interface AddBookingItemInput {
   booking_id: string;
@@ -112,18 +113,51 @@ export class AddBookingItemUseCase {
         estado: booking.estado === "pendiente" ? "pendiente" : "confirmada",
         modified_at: new Date().toISOString(),
       });
+
+      const existentes = await this.bookingRepository.findItemsByBookingId(booking.id);
+      const orden = existentes.length;
+
       const item = await this.bookingItemRepository.create({
         booking_id: booking.id,
         service_id: service.id,
         nombre: input.nombre_personalizado ?? service.nombre,
         precio: input.precio,
         duracion_minutos: duracion,
+        orden,
+        tiempo_activo_inicial_minutos: service.tiempo_activo_inicial_minutos,
+        tiempo_procesamiento_minutos: service.tiempo_procesamiento_minutos,
       });
+
+      // El item nuevo empieza exactamente donde terminaba la reserva antes
+      // de extenderla (booking.hora_fin, el valor viejo) — los items son
+      // secuenciales, así que ese es su offset absoluto real.
+      const blocks = computeActiveBlocks([
+        {
+          orden: 0,
+          duracion_minutos: duracion,
+          tiempo_activo_inicial_minutos: service.tiempo_activo_inicial_minutos,
+          tiempo_procesamiento_minutos: service.tiempo_procesamiento_minutos,
+        },
+      ]);
+      if (blocks.length > 0) {
+        const baseInicio = this.combinarFechaHora(booking.fecha, booking.hora_fin);
+        await this.bookingRepository.createActiveBlocks(
+          booking.id,
+          booking.barber_id,
+          blocks.map((b) => ({
+            starts_at: this.sumarMinutosISO(baseInicio, b.startsAtMinuteOffset),
+            ends_at: this.sumarMinutosISO(baseInicio, b.endsAtMinuteOffset),
+          })),
+        );
+      }
+
       return { booking: updated, item, agendaExtendida: true };
     } catch (error) {
-      // ConflictError = colisión real con el siguiente turno (bookings_no_overlap).
-      // La venta se registra igual; el barbero coordina manualmente con el
-      // cliente siguiente — ver AddBookingItemResult.agendaExtendida.
+      // ConflictError = colisión real, ya sea con el siguiente turno
+      // (bookings_no_overlap_por_silla) o con la atención activa de otro
+      // turno (booking_active_blocks_no_overlap) si el barbero tiene más
+      // de una silla. La venta se registra igual; el barbero coordina
+      // manualmente con el cliente siguiente — ver AddBookingItemResult.agendaExtendida.
       if (error instanceof ConflictError) {
         const item = await this.bookingItemRepository.create({
           booking_id: booking.id,
@@ -166,5 +200,38 @@ export class AddBookingItemUseCase {
     const hh = Math.floor(total / 60) % 24;
     const mm = total % 60;
     return `${hh.toString().padStart(2, "0")}:${mm.toString().padStart(2, "0")}`;
+  }
+
+  /** "2026-04-21" + "10:45" → "2026-04-21T10:45:00" (naive, sin timezone —
+   *  igual criterio que el resto del cálculo de horarios de este backend). */
+  private combinarFechaHora(fecha: string, hora: string): string {
+    return `${fecha}T${hora.slice(0, 5)}:00`;
+  }
+
+  /** Suma minutos a un timestamp naive "YYYY-MM-DDTHH:MM:SS" sin usar Date
+   *  (evitaría bugs de timezone si Date interpretara el string como UTC). */
+  private sumarMinutosISO(isoNaive: string, minutos: number): string {
+    const [fecha, horaConSegundos] = isoNaive.split("T");
+    const [h, m] = horaConSegundos.split(":").map(Number);
+    const totalMin = h * 60 + m + minutos;
+    const diasExtra = Math.floor(totalMin / (24 * 60));
+    const minutoDelDia = ((totalMin % (24 * 60)) + 24 * 60) % (24 * 60);
+    const hh = Math.floor(minutoDelDia / 60).toString().padStart(2, "0");
+    const mm = (minutoDelDia % 60).toString().padStart(2, "0");
+
+    if (diasExtra === 0) {
+      return `${fecha}T${hh}:${mm}:00`;
+    }
+    // Un item que cruza medianoche sería un bug de configuración de horario
+    // de por sí (nadie agenda un corte de 23:50 a 00:20) — lo resolvemos
+    // corriendo la fecha para no generar un rango inválido (fin < inicio),
+    // pero es un caso que no debería pasar en la práctica.
+    const [y, mo, d] = fecha.split("-").map(Number);
+    const fechaBase = new Date(y, mo - 1, d);
+    fechaBase.setDate(fechaBase.getDate() + diasExtra);
+    const fechaStr = `${fechaBase.getFullYear()}-${(fechaBase.getMonth() + 1)
+      .toString()
+      .padStart(2, "0")}-${fechaBase.getDate().toString().padStart(2, "0")}`;
+    return `${fechaStr}T${hh}:${mm}:00`;
   }
 }

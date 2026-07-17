@@ -71,6 +71,7 @@ const getAvailableSlotsUseCase = new GetAvailableSlotsUseCase(
   bookingRepository,
   scheduleRepository,
   blockedDateRepository,
+  barberRepository,
 );
 
 const createBookingUseCase = new CreateBookingUseCase(
@@ -149,6 +150,7 @@ const modifyBookingUseCase = new ModifyBookingUseCase(
   scheduleRepository,
   blockedDateRepository,
   serviceRepository,
+  barberRepository,
 );
 
 const cancelBookingUseCase = new CancelBookingUseCase(

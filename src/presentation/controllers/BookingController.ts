@@ -184,11 +184,14 @@ export class BookingController {
       const booking = await this.createBookingUseCase.execute({
         business_id: business.id,
         barber_id: input.barber_id,
-        items: services.map((s) => ({
+        items: services.map((s, index) => ({
           service_id: s.id,
           nombre: s.nombre,
           precio: s.precio,
           duracion_minutos: s.duracion_minutos,
+          orden: index,
+          tiempo_activo_inicial_minutos: s.tiempo_activo_inicial_minutos,
+          tiempo_procesamiento_minutos: s.tiempo_procesamiento_minutos,
         })),
         cliente_nombre: input.cliente_nombre,
         cliente_email: input.cliente_email,
@@ -273,6 +276,17 @@ export class BookingController {
         fecha,
         duracionMinutos: duracionTotal,
         bufferMinutos: business.buffer_minutos,
+        // Necesario para que un barbero con capacidad_sillas > 1 muestre
+        // como disponibles los huecos de procesamiento del combo pedido
+        // (ver GetAvailableSlotsUseCase) — sin esto, el buscador asumiría
+        // que todo el combo es tiempo activo y subestimaría la disponibilidad
+        // real para servicios como color/tinte.
+        items: services.map((s, index) => ({
+          orden: index,
+          duracion_minutos: s.duracion_minutos,
+          tiempo_activo_inicial_minutos: s.tiempo_activo_inicial_minutos,
+          tiempo_procesamiento_minutos: s.tiempo_procesamiento_minutos,
+        })),
       });
 
       res.json({ slots, fecha });
@@ -333,11 +347,14 @@ export class BookingController {
       const booking = await this.createBookingUseCase.execute({
         business_id: business.id,
         barber_id: input.barber_id,
-        items: services.map((s) => ({
+        items: services.map((s, index) => ({
           service_id: s.id,
           nombre: s.nombre,
           precio: s.precio,
           duracion_minutos: s.duracion_minutos,
+          orden: index,
+          tiempo_activo_inicial_minutos: s.tiempo_activo_inicial_minutos,
+          tiempo_procesamiento_minutos: s.tiempo_procesamiento_minutos,
         })),
         cliente_nombre: input.cliente_nombre,
         cliente_email: input.cliente_email,

@@ -127,6 +127,10 @@ export class CreateBusinessUseCase {
         duracion_minutos: 1,
         precio: 0,
         precio_hasta: null,
+        // Servicio genérico: nunca tiene fases de procesamiento, es
+        // decorativo igual que duracion_minutos = 1.
+        tiempo_activo_inicial_minutos: 1,
+        tiempo_procesamiento_minutos: 0,
         // Irrelevante: este servicio nunca se muestra en una lista
         // ordenada (se filtra por es_generico en findAllByBusiness y en
         // el frontend), así que no necesita el cálculo de getNextOrden.

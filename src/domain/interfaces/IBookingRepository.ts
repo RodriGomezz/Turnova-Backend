@@ -11,6 +11,18 @@ export interface CreateBookingItemInput {
   nombre: string;
   precio: number;
   duracion_minutos: number;
+  /** Posición secuencial dentro de la reserva (0 = primero). */
+  orden: number;
+  /** Snapshot de services.tiempo_activo_inicial_minutos. Si se omite, todo el item es activo. */
+  tiempo_activo_inicial_minutos?: number;
+  /** Snapshot de services.tiempo_procesamiento_minutos. Si se omite, 0 (sin procesamiento). */
+  tiempo_procesamiento_minutos?: number;
+}
+
+/** Bloque de atención activa ya ocupado por otra reserva del mismo barbero ese día. */
+export interface ActiveBlockRow {
+  hora_inicio: string; // "HH:MM", ya recortado a minutos
+  hora_fin: string;
 }
 
 export interface IBookingRepository {
@@ -18,6 +30,37 @@ export interface IBookingRepository {
   findByCancellationToken(token: string): Promise<Booking | null>;
   findByBusinessAndDate(businessId: string, fecha: string): Promise<Booking[]>;
   findByBarberAndDate(barberId: string, fecha: string): Promise<Booking[]>;
+  /**
+   * Bloques de atención activa (no de silla) de todas las reservas no
+   * canceladas de este barbero ese día — la fuente de verdad para el
+   * chequeo de disponibilidad cuando el barbero tiene capacidad_sillas > 1.
+   * Ver domain/booking-scheduling.ts (activeBlocksCollide) para cómo se usan.
+   */
+  findActiveBlocksByBarberAndDate(
+    barberId: string,
+    fecha: string,
+    excludeBookingId?: string,
+  ): Promise<ActiveBlockRow[]>;
+  /**
+   * Inserta bloques de atención activa para una reserva ya existente — usado
+   * por AddBookingItemUseCase cuando se agrega un servicio in-situ a un
+   * turno en curso (a diferencia de createWithItems/replaceItems, que ya
+   * los generan solos dentro de su propia transacción). Si algún bloque
+   * choca con booking_active_blocks_no_overlap, lanza ConflictError igual
+   * que el resto de las operaciones de escritura sobre bookings.
+   */
+  createActiveBlocks(
+    bookingId: string,
+    barberId: string,
+    blocks: Array<{ starts_at: string; ends_at: string }>,
+  ): Promise<void>;
+  /**
+   * Regenera los booking_active_blocks de una reserva ya existente, leyendo
+   * sus booking_items actuales (orden + fases ya guardadas). Se usa cuando
+   * se reprograma una reserva (fecha/hora/barbero) sin reemplazar el combo
+   * de servicios — ver nota en ModifyBookingUseCase y migración 018.
+   */
+  regenerateActiveBlocks(bookingId: string): Promise<void>;
   findByBarberAndMonth(
     barberId: string,
     businessId: string,

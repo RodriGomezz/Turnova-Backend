@@ -55,6 +55,16 @@ export interface BookingItem {
   nombre: string;
   precio: number;
   duracion_minutos: number;
+  /**
+   * Posición secuencial dentro de la reserva (0 = primero). Los items se
+   * ejecutan uno después del otro, en este orden — necesario para calcular
+   * en qué instante absoluto empieza cada uno dentro del turno.
+   */
+  orden: number;
+  /** Snapshot de services.tiempo_activo_inicial_minutos al crear el item. */
+  tiempo_activo_inicial_minutos: number;
+  /** Snapshot de services.tiempo_procesamiento_minutos al crear el item. */
+  tiempo_procesamiento_minutos: number;
   created_at: string;
 }
 

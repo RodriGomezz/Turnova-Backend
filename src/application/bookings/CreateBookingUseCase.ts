@@ -40,6 +40,13 @@ export class CreateBookingUseCase {
       fecha: input.fecha,
       duracionMinutos: input.duracion_minutos,
       bufferMinutos: input.buffer_minutos,
+      // Necesario para que el barbero con capacidad_sillas > 1 reciba el
+      // mismo cálculo de huecos activos que ya vio el buscador de slots —
+      // si no se pasa, GetAvailableSlotsUseCase asume un único bloque
+      // activo de duracionMinutos completo (sin fases), que es correcto
+      // para servicios sin tiempo de procesamiento pero subestimaría la
+      // disponibilidad real de un combo con color + corte.
+      items: input.items,
     };
 
     const slots = await this.getAvailableSlotsUseCase.execute(slotsInput);

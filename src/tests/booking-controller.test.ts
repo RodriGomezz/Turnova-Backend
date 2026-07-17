@@ -40,6 +40,12 @@ test("createPanel creates an owner booking with the current business", async () 
             nombre: "Corte",
             precio: 500,
             duracion_minutos: 45,
+            orden: 0,
+            // El mock de findByIds no define fases (servicio sin
+            // procesamiento) — BookingController las pasa igual,
+            // quedan undefined, comportamiento actual sin cambios.
+            tiempo_activo_inicial_minutos: undefined,
+            tiempo_procesamiento_minutos: undefined,
           },
         ],
         cliente_nombre: "Juan",

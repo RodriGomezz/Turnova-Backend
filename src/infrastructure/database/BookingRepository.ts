@@ -5,6 +5,7 @@ import {
   IBookingRepository,
   BookingsByMonth,
   CreateBookingItemInput,
+  ActiveBlockRow,
 } from "../../domain/interfaces/IBookingRepository";
 
 export class BookingRepository implements IBookingRepository {
@@ -62,6 +63,45 @@ export class BookingRepository implements IBookingRepository {
 
     if (error) throw new AppError(error.message, 500);
     return (data ?? []) as Booking[];
+  }
+
+  /**
+   * Trae los bloques de atención activa (booking_active_blocks) de todas las
+   * reservas no canceladas de este barbero ese día, recortados a "HH:MM"
+   * en hora local del negocio para que GetAvailableSlotsUseCase los compare
+   * con el mismo formato que usa para hora_inicio/hora_fin.
+   *
+   * Nota: starts_at/ends_at son TIMESTAMPTZ (absolutos); acá asumimos que
+   * el negocio ya opera en un solo huso horario consistente con `fecha`,
+   * igual que el resto del cálculo de slots existente (que ya trabaja con
+   * horas "naive" sin timezone). Si en el futuro hay negocios multi-huso,
+   * este es el punto a revisar.
+   */
+  async findActiveBlocksByBarberAndDate(
+    barberId: string,
+    fecha: string,
+    excludeBookingId?: string,
+  ): Promise<ActiveBlockRow[]> {
+    let query = supabase
+      .from("booking_active_blocks")
+      .select("starts_at, ends_at, bookings!inner(estado)")
+      .eq("barber_id", barberId)
+      .gte("starts_at", `${fecha}T00:00:00`)
+      .lt("starts_at", `${fecha}T23:59:59.999`)
+      .neq("bookings.estado", "cancelada");
+
+    if (excludeBookingId) {
+      query = query.neq("booking_id", excludeBookingId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw new AppError(error.message, 500);
+
+    return ((data ?? []) as Array<{ starts_at: string; ends_at: string }>).map((row) => ({
+      hora_inicio: row.starts_at.slice(11, 16),
+      hora_fin: row.ends_at.slice(11, 16),
+    }));
   }
 
   async findByBarberAndMonth(
@@ -249,6 +289,42 @@ export class BookingRepository implements IBookingRepository {
     if (error) throw new AppError(error.message, 500);
   }
 
+  async createActiveBlocks(
+    bookingId: string,
+    barberId: string,
+    blocks: Array<{ starts_at: string; ends_at: string }>,
+  ): Promise<void> {
+    if (blocks.length === 0) return;
+
+    const { error } = await supabase.from("booking_active_blocks").insert(
+      blocks.map((b) => ({
+        booking_id: bookingId,
+        barber_id: barberId,
+        starts_at: b.starts_at,
+        ends_at: b.ends_at,
+      })),
+    );
+
+    // 23P01 = booking_active_blocks_no_overlap — otro turno de este barbero
+    // ya ocupa ese rango de atención activa. Mismo código que el resto de
+    // conflictos de agenda, para que el caller lo trate igual.
+    if (error?.code === "23P01" || error?.code === "23505") {
+      throw new ConflictError("El horario seleccionado ya no está disponible");
+    }
+    if (error) throw new AppError(error.message, 500);
+  }
+
+  async regenerateActiveBlocks(bookingId: string): Promise<void> {
+    const { error } = await supabase.rpc("regenerate_active_blocks", {
+      p_booking_id: bookingId,
+    });
+
+    if (error?.code === "23P01" || error?.code === "23505") {
+      throw new ConflictError("El horario seleccionado ya no está disponible");
+    }
+    if (error) throw new AppError(error.message, 500);
+  }
+
   async findByBusinessAndMonth(
     businessId: string,
     year: number,
@@ -271,7 +347,6 @@ export class BookingRepository implements IBookingRepository {
     if (error) throw new AppError(error.message, 500);
     return (data ?? []) as Booking[];
   }
-
     async countByMonth(
     businessId: string,
     year: number,
@@ -379,6 +454,22 @@ export class BookingRepository implements IBookingRepository {
       .single();
 
     if (error) throw new AppError(error.message, 500);
+
+    // CRÍTICO: booking_active_blocks_no_overlap no puede filtrar por
+    // bookings.estado en su WHERE (un EXCLUDE constraint solo puede mirar
+    // columnas de su propia tabla) — si no borramos los bloques acá, un
+    // turno cancelado sigue "ocupando" agenda a nivel de base de datos para
+    // siempre, y reservar ese mismo horario después falla con un conflicto
+    // fantasma. Afecta a TODO barbero con al menos un item de duración > 0,
+    // no solo a los que tienen capacidad_sillas > 1 (los bloques activos se
+    // generan siempre, sea cual sea la capacidad).
+    const { error: blocksError } = await supabase
+      .from("booking_active_blocks")
+      .delete()
+      .eq("booking_id", id);
+
+    if (blocksError) throw new AppError(blocksError.message, 500);
+
     return updated as Booking;
   }
 

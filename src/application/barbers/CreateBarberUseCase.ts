@@ -6,6 +6,7 @@ export interface CreateBarberInput {
   nombre: string;
   descripcion?: string;
   orden?: number;
+  capacidad_sillas?: number;
 }
 
 export class CreateBarberUseCase {
