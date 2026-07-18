@@ -13,6 +13,14 @@ export const createBookingSchema = z.object({
   cliente_telefono: z.string()
   .transform(v => v.replace(/[\s-]/g, '')) // limpia espacios y guiones
   .pipe(z.string().regex(/^09\d{7}$/, 'Teléfono uruguayo inválido (09XXXXXXX)')),
+  /**
+   * Generada por el frontend UNA sola vez al entrar al paso de confirmación
+   * (no en cada click) y reenviada igual en reintentos — permite que
+   * create_booking_with_items detecte "este pedido ya lo procesé" y
+   * devuelva la reserva existente en vez de crear una duplicada. Opcional
+   * por compatibilidad con clientes viejos que todavía no la mandan.
+   */
+  idempotency_key: z.string().uuid().optional(),
 }).refine(
   (data) => !!data.service_id || !!data.service_ids?.length,
   { message: 'Se requiere service_id o service_ids', path: ['service_ids'] },

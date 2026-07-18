@@ -25,6 +25,22 @@ export interface CreateBookingInput {
   duracion_minutos: number;
   buffer_minutos: number;
   auto_confirmar: boolean;
+  /**
+   * Ver comentario en bookings.idempotency_key (mig. 020). Opcional: si no
+   * se manda, la reserva se crea sin protección de idempotencia, igual que
+   * antes de esta migración.
+   */
+  idempotency_key?: string;
+}
+
+export interface CreateBookingResult {
+  booking: Booking;
+  /**
+   * false cuando la reserva devuelta ya existía (reintento con la misma
+   * idempotency_key) — el caller debe usar esto para NO reenviar el email
+   * de confirmación ni invalidar cache de más.
+   */
+  isNewBooking: boolean;
 }
 
 export class CreateBookingUseCase {
@@ -33,7 +49,23 @@ export class CreateBookingUseCase {
     private readonly getAvailableSlotsUseCase: GetAvailableSlotsUseCase,
   ) {}
 
-  async execute(input: CreateBookingInput): Promise<Booking> {
+  async execute(input: CreateBookingInput): Promise<CreateBookingResult> {
+    // Chequeo de idempotencia ANTES del slot check: GetAvailableSlotsUseCase
+    // lee bookings en vivo, así que en un reintento posterior al éxito del
+    // primer intento vería el slot como ocupado (por la reserva que sí se
+    // creó) y rechazaría el reintento con un falso "horario no disponible"
+    // — hay que cortar acá, antes de llegar a esa consulta.
+    if (input.idempotency_key) {
+      const existing = await this.bookingRepository.findByIdempotencyKey(input.idempotency_key);
+      if (existing) {
+        logger.info("Reserva ya existía para esta idempotency_key — reintento detectado, no se crea de nuevo", {
+          bookingId: existing.id,
+          businessId: input.business_id,
+        });
+        return { booking: existing, isNewBooking: false };
+      }
+    }
+
     const slotsInput: GetAvailableSlotsInput = {
       barberId: input.barber_id,
       businessId: input.business_id,
@@ -80,6 +112,7 @@ export class CreateBookingUseCase {
         estado: input.auto_confirmar ? "confirmada" : "pendiente",
       },
       input.items,
+      input.idempotency_key,
     );
 
     logger.info("Reserva creada", {
@@ -97,6 +130,6 @@ export class CreateBookingUseCase {
     // durante el TTL del cache (2 min).
     invalidateSlotsCache(input.business_id);
 
-    return booking;
+    return { booking, isNewBooking: true };
   }
 }

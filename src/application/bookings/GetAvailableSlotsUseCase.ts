@@ -2,7 +2,12 @@ import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
 import { IScheduleRepository } from "../../domain/interfaces/IScheduleRepository";
 import { IBlockedDateRepository } from "../../domain/interfaces/IBlockedDateRepository";
 import { IBarberRepository } from "../../domain/interfaces/IBarberRepository";
-import { computeActiveBlocks, activeBlocksCollide, BookingItemInput } from "../../domain/booking-scheduling";
+import {
+  BookingItemInput,
+  isSlotDisponible,
+  generateCandidateStartMinutes,
+  MinuteRange,
+} from "../../domain/booking-scheduling";
 
 export interface GetAvailableSlotsInput {
   barberId: string;
@@ -63,43 +68,68 @@ export class GetAvailableSlotsUseCase {
       ? existingBookings.filter((booking) => booking.id !== input.excludeBookingId)
       : existingBookings;
 
-    const slots = this.generateSlots(
-      this.normalizeTime(schedule.hora_inicio),
-      this.normalizeTime(schedule.hora_fin),
-      input.duracionMinutos,
-      input.bufferMinutos,
-      schedule.break_start ? this.normalizeTime(schedule.break_start) : null,
-      schedule.break_end   ? this.normalizeTime(schedule.break_end)   : null,
-    );
-
     const capacidadSillas = barber?.capacidad_sillas ?? 1;
 
-    if (capacidadSillas <= 1) {
-      return slots.map((slot) => ({
-        ...slot,
-        disponible: !this.isSlotTaken(slot, bookings),
-      }));
-    }
+    const horaInicio = this.timeToMinutes(this.normalizeTime(schedule.hora_inicio));
+    const horaFin    = this.timeToMinutes(this.normalizeTime(schedule.hora_fin));
+    const brkStart = schedule.break_start ? this.timeToMinutes(this.normalizeTime(schedule.break_start)) : null;
+    const brkEnd   = schedule.break_end   ? this.timeToMinutes(this.normalizeTime(schedule.break_end))   : null;
 
-    const activeBlocks = await this.bookingRepository.findActiveBlocksByBarberAndDate(
-      input.barberId,
-      input.fecha,
-      input.excludeBookingId,
-    );
-    const activeBlocksMinutos = activeBlocks.map((b) => ({
+    const bookingRanges: MinuteRange[] = bookings.map((b) => ({
       start: this.timeToMinutes(b.hora_inicio),
       end: this.timeToMinutes(b.hora_fin),
     }));
 
+    // Solo se paga la query de bloques activos cuando realmente hace falta
+    // (capacidadSillas > 1) — mismo criterio de siempre, sin cambios para
+    // el caso default.
+    let activeBlocksMinutos: MinuteRange[] = [];
+    if (capacidadSillas > 1) {
+      const activeBlocks = await this.bookingRepository.findActiveBlocksByBarberAndDate(
+        input.barberId,
+        input.fecha,
+        input.excludeBookingId,
+      );
+      activeBlocksMinutos = activeBlocks.map((b) => ({
+        start: this.timeToMinutes(b.hora_inicio),
+        end: this.timeToMinutes(b.hora_fin),
+      }));
+    }
+
     const candidateItems: BookingItemInput[] =
       input.items ?? [{ orden: 0, duracion_minutos: input.duracionMinutos }];
 
-    return slots.map((slot) => {
-      const slotStart = this.timeToMinutes(slot.hora_inicio);
-      const sillaLibre = this.haySillaLibre(slot, bookings, capacidadSillas);
-      const barberoLibre = !activeBlocksCollide(slotStart, candidateItems, activeBlocksMinutos);
-      return { ...slot, disponible: sillaLibre && barberoLibre };
-    });
+    const candidateStarts = generateCandidateStartMinutes(
+      horaInicio,
+      horaFin,
+      input.duracionMinutos,
+      input.bufferMinutos,
+      capacidadSillas,
+      activeBlocksMinutos,
+    );
+
+    const slots: TimeSlot[] = [];
+    for (const start of candidateStarts) {
+      const end = start + input.duracionMinutos;
+      const overlapsBreak =
+        brkStart !== null && brkEnd !== null && start < brkEnd && end > brkStart;
+      if (overlapsBreak) continue;
+
+      slots.push({
+        hora_inicio: this.minutesToTime(start),
+        hora_fin: this.minutesToTime(end),
+        disponible: isSlotDisponible(
+          start,
+          end,
+          bookingRanges,
+          capacidadSillas,
+          candidateItems,
+          activeBlocksMinutos,
+        ),
+      });
+    }
+
+    return slots;
   }
 
   private parseDiaSemana(fecha: string): DiaSemana {
@@ -109,73 +139,6 @@ export class GetAvailableSlotsUseCase {
 
   private normalizeTime(time: string): string {
     return time.slice(0, 5);
-  }
-
-  private generateSlots(
-    horaInicio: string,
-    horaFin: string,
-    duracion: number,
-    buffer: number,
-    breakStart: string | null = null,
-    breakEnd: string | null = null,
-  ): TimeSlot[] {
-    const slots: TimeSlot[] = [];
-    const endMinutes = this.timeToMinutes(horaFin);
-    const brkStart = breakStart ? this.timeToMinutes(breakStart) : null;
-    const brkEnd   = breakEnd   ? this.timeToMinutes(breakEnd)   : null;
-    let current = this.timeToMinutes(horaInicio);
-
-    while (current + duracion <= endMinutes) {
-      const slotEnd = current + duracion;
-      const overlapsBreak =
-        brkStart !== null && brkEnd !== null &&
-        current < brkEnd && slotEnd > brkStart;
-
-      if (overlapsBreak) {
-        current = brkEnd!;
-        continue;
-      }
-
-      slots.push({
-        hora_inicio: this.minutesToTime(current),
-        hora_fin: this.minutesToTime(slotEnd),
-        disponible: true,
-      });
-      current += duracion + buffer;
-    }
-
-    return slots;
-  }
-
-  private isSlotTaken(
-    slot: TimeSlot,
-    bookings: Array<{ hora_inicio: string; hora_fin: string }>,
-  ): boolean {
-    const slotStart = this.timeToMinutes(slot.hora_inicio);
-    const slotEnd = this.timeToMinutes(slot.hora_fin);
-
-    return bookings.some((booking) => {
-      const bookingStart = this.timeToMinutes(booking.hora_inicio);
-      const bookingEnd = this.timeToMinutes(booking.hora_fin);
-      return slotStart < bookingEnd && slotEnd > bookingStart;
-    });
-  }
-
-  private haySillaLibre(
-    slot: TimeSlot,
-    bookings: Array<{ hora_inicio: string; hora_fin: string }>,
-    capacidadSillas: number,
-  ): boolean {
-    const slotStart = this.timeToMinutes(slot.hora_inicio);
-    const slotEnd = this.timeToMinutes(slot.hora_fin);
-
-    const sillasOcupadas = bookings.filter((booking) => {
-      const bookingStart = this.timeToMinutes(booking.hora_inicio);
-      const bookingEnd = this.timeToMinutes(booking.hora_fin);
-      return slotStart < bookingEnd && slotEnd > bookingStart;
-    }).length;
-
-    return sillasOcupadas < capacidadSillas;
   }
 
   private timeToMinutes(time: string): number {

@@ -25,10 +25,18 @@ export interface ActiveBlockRow {
   hora_fin: string;
 }
 
+/** Igual que ActiveBlockRow pero con la fecha — para consultas de rango de mes,
+ * donde hace falta agrupar los bloques por día antes de evaluarlos. */
+export interface ActiveBlockRowWithFecha extends ActiveBlockRow {
+  fecha: string; // "YYYY-MM-DD"
+}
+
 export interface IBookingRepository {
   findById(id: string): Promise<Booking | null>;
   findByCancellationToken(token: string): Promise<Booking | null>;
   findByBusinessAndDate(businessId: string, fecha: string): Promise<Booking[]>;
+  /** Ver comentario en BookingRepository.findByIdempotencyKey. */
+  findByIdempotencyKey(key: string): Promise<Booking | null>;
   findByBarberAndDate(barberId: string, fecha: string): Promise<Booking[]>;
   /**
    * Bloques de atención activa (no de silla) de todas las reservas no
@@ -41,6 +49,19 @@ export interface IBookingRepository {
     fecha: string,
     excludeBookingId?: string,
   ): Promise<ActiveBlockRow[]>;
+  /**
+   * Igual que findActiveBlocksByBarberAndDate pero para un rango [from, to]
+   * de fechas de una sola vez — usada por GetAllSlotsForDaysUseCase para no
+   * hacer una query por día del mes. Ver comentario en isSlotDisponible
+   * (domain/booking-scheduling.ts) sobre por qué ambos use cases comparten
+   * la misma fuente de datos y lógica.
+   */
+  findActiveBlocksByBarberAndMonth(
+    barberId: string,
+    from: string,
+    to: string,
+    excludeBookingId?: string,
+  ): Promise<ActiveBlockRowWithFecha[]>;
   /**
    * Inserta bloques de atención activa para una reserva ya existente — usado
    * por AddBookingItemUseCase cuando se agrega un servicio in-situ a un
@@ -85,8 +106,9 @@ export interface IBookingRepository {
    * dentro de la misma transacción: si hay colisión, no quedan items huérfanos.
    */
   createWithItems(
-    bookingData: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at" | "service_id">,
+    bookingData: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at" | "service_id" | "idempotency_key">,
     items: CreateBookingItemInput[],
+    idempotencyKey?: string,
   ): Promise<Booking>;
   /** Ítems de detalle de una reserva (servicios + productos cobrados). */
   findItemsByBookingId(bookingId: string): Promise<BookingItem[]>;

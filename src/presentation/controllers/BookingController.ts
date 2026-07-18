@@ -181,7 +181,7 @@ export class BookingController {
       const duracionTotal = services.reduce((sum, s) => sum + s.duracion_minutos, 0);
       const hora_fin = this.calcHoraFin(input.hora_inicio, duracionTotal);
 
-      const booking = await this.createBookingUseCase.execute({
+      const { booking, isNewBooking } = await this.createBookingUseCase.execute({
         business_id: business.id,
         barber_id: input.barber_id,
         items: services.map((s, index) => ({
@@ -202,14 +202,19 @@ export class BookingController {
         duracion_minutos: duracionTotal,
         buffer_minutos: business.buffer_minutos,
         auto_confirmar: business.auto_confirmar ?? true,
+        idempotency_key: input.idempotency_key,
       });
 
-      this.sendEmailsAsync({
-        booking,
-        business,
-        services,
-        barber: { nombre: barber.nombre },
-      });
+      // Reintento con la misma idempotency_key: la reserva ya existía y ya
+      // se mandaron sus emails la primera vez — no repetirlos.
+      if (isNewBooking) {
+        this.sendEmailsAsync({
+          booking,
+          business,
+          services,
+          barber: { nombre: barber.nombre },
+        });
+      }
 
       res.status(201).json({
         message: "Turno creado exitosamente",
@@ -344,7 +349,7 @@ export class BookingController {
       const duracionTotal = services.reduce((sum, s) => sum + s.duracion_minutos, 0);
       const hora_fin = this.calcHoraFin(input.hora_inicio, duracionTotal);
 
-      const booking = await this.createBookingUseCase.execute({
+      const { booking, isNewBooking } = await this.createBookingUseCase.execute({
         business_id: business.id,
         barber_id: input.barber_id,
         items: services.map((s, index) => ({
@@ -365,14 +370,19 @@ export class BookingController {
         duracion_minutos: duracionTotal,
         buffer_minutos: business.buffer_minutos,
         auto_confirmar: business.auto_confirmar ?? true,
+        idempotency_key: input.idempotency_key,
       });
 
-      this.sendEmailsAsync({
-        booking,
-        business,
-        services,
-        barber: { nombre: barber.nombre },
-      });
+      // Reintento con la misma idempotency_key: la reserva ya existía y ya
+      // se mandaron sus emails la primera vez — no repetirlos.
+      if (isNewBooking) {
+        this.sendEmailsAsync({
+          booking,
+          business,
+          services,
+          barber: { nombre: barber.nombre },
+        });
+      }
 
       res.status(201).json({
         message: "Reserva creada exitosamente",

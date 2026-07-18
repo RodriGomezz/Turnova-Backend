@@ -6,6 +6,7 @@ import {
   BookingsByMonth,
   CreateBookingItemInput,
   ActiveBlockRow,
+  ActiveBlockRowWithFecha,
 } from "../../domain/interfaces/IBookingRepository";
 
 export class BookingRepository implements IBookingRepository {
@@ -29,6 +30,26 @@ export class BookingRepository implements IBookingRepository {
       .from(this.table)
       .select("*")
       .eq("cancellation_token", token)
+      .single();
+
+    if (error?.code === "PGRST116") return null;
+    if (error) throw new AppError(error.message, 500);
+    return data as Booking;
+  }
+
+  /**
+   * Usado por CreateBookingUseCase antes de chequear disponibilidad de
+   * slot — si ya existe una reserva con esta key, hay que devolverla
+   * directo y NO correr GetAvailableSlotsUseCase, porque esa consulta lee
+   * bookings en vivo y en un reintento vería el slot ya ocupado por la
+   * reserva que el primer intento sí creó, rechazando el reintento con un
+   * falso "horario no disponible". Ver mig. 020.
+   */
+  async findByIdempotencyKey(key: string): Promise<Booking | null> {
+    const { data, error } = await supabase
+      .from(this.table)
+      .select("*")
+      .eq("idempotency_key", key)
       .single();
 
     if (error?.code === "PGRST116") return null;
@@ -99,6 +120,42 @@ export class BookingRepository implements IBookingRepository {
     if (error) throw new AppError(error.message, 500);
 
     return ((data ?? []) as Array<{ starts_at: string; ends_at: string }>).map((row) => ({
+      hora_inicio: row.starts_at.slice(11, 16),
+      hora_fin: row.ends_at.slice(11, 16),
+    }));
+  }
+
+  /**
+   * Igual que findActiveBlocksByBarberAndDate pero para todo un rango de
+   * fechas en una sola query — usada por GetAllSlotsForDaysUseCase, que
+   * precarga el mes completo. Se agrupa por `fecha` acá mismo (derivada de
+   * starts_at) porque el caller necesita bucketear los bloques por día
+   * antes de evaluar cada slot candidato.
+   */
+  async findActiveBlocksByBarberAndMonth(
+    barberId: string,
+    from: string,
+    to: string,
+    excludeBookingId?: string,
+  ): Promise<ActiveBlockRowWithFecha[]> {
+    let query = supabase
+      .from("booking_active_blocks")
+      .select("starts_at, ends_at, bookings!inner(estado)")
+      .eq("barber_id", barberId)
+      .gte("starts_at", `${from}T00:00:00`)
+      .lt("starts_at", `${to}T23:59:59.999`)
+      .neq("bookings.estado", "cancelada");
+
+    if (excludeBookingId) {
+      query = query.neq("booking_id", excludeBookingId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw new AppError(error.message, 500);
+
+    return ((data ?? []) as Array<{ starts_at: string; ends_at: string }>).map((row) => ({
+      fecha: row.starts_at.slice(0, 10),
       hora_inicio: row.starts_at.slice(11, 16),
       hora_fin: row.ends_at.slice(11, 16),
     }));
@@ -207,11 +264,12 @@ export class BookingRepository implements IBookingRepository {
    * de la función — no se mueve ni se duplica.
    */
   async createWithItems(
-    bookingData: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at" | "service_id">,
+    bookingData: Omit<Booking, "id" | "cancellation_token" | "reminder_sent_at" | "created_at" | "service_id" | "idempotency_key">,
     items: CreateBookingItemInput[],
+    idempotencyKey?: string,
   ): Promise<Booking> {
     const { data, error } = await supabase.rpc("create_booking_with_items", {
-      booking_data: bookingData,
+      booking_data: { ...bookingData, idempotency_key: idempotencyKey ?? null },
       items_data: items,
     });
 

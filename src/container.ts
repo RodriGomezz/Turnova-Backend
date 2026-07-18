@@ -114,6 +114,7 @@ const getAllSlotsForDaysUseCase = new GetAllSlotsForDaysUseCase(
   scheduleRepository,
   blockedDateRepository,
   bookingRepository,
+  barberRepository,
 );
 
 export const createBusinessUseCase = new CreateBusinessUseCase(

@@ -33,9 +33,11 @@ import { IScheduleRepository } from "../../domain/interfaces/IScheduleRepository
 import { IBlockedDateRepository } from "../../domain/interfaces/IBlockedDateRepository";
 import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository";
 import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
+import { IBarberRepository } from "../../domain/interfaces/IBarberRepository";
 import { NotFoundError } from "../../domain/errors";
 import { BlockedDate } from "../../domain/entities/BlockedDate";
 import { Schedule } from "../../domain/entities/Schedule";
+import { BookingItemInput, isSlotDisponible, generateCandidateStartMinutes, MinuteRange } from "../../domain/booking-scheduling";
 
 export interface TimeSlot {
   hora_inicio: string;
@@ -72,6 +74,7 @@ export class GetAllSlotsForDaysUseCase {
     private readonly scheduleRepository: IScheduleRepository,
     private readonly blockedDateRepository: IBlockedDateRepository,
     private readonly bookingRepository: IBookingRepository,
+    private readonly barberRepository: IBarberRepository,
   ) {}
 
   async execute(input: GetAllSlotsForDaysInput): Promise<GetAllSlotsForDaysResult> {
@@ -99,7 +102,7 @@ export class GetAllSlotsForDaysUseCase {
     const lastDayStr  = `${y}-${pad(m)}-${pad(lastDay)}`;
 
     // ── 3 queries al total, igual que GetAvailableDaysUseCase ────────────────
-    const [schedules, blockedDates, existingBookings] = await Promise.all([
+    const [schedules, blockedDates, existingBookings, barber] = await Promise.all([
       this.scheduleRepository.findAllByBusiness(business.id, input.barberId || undefined),
       this.blockedDateRepository.findByBusiness(business.id),
       this.bookingRepository.findByBarberAndMonth(
@@ -108,10 +111,51 @@ export class GetAllSlotsForDaysUseCase {
         firstDayStr,
         lastDayStr,
       ),
+      this.barberRepository.findById(input.barberId),
     ]);
     const bookings = input.excludeBookingId
       ? existingBookings.filter((booking) => booking.id !== input.excludeBookingId)
       : existingBookings;
+
+    // capacidadSillas <= 1 (default, todo barbero preexistente): sigue el
+    // camino simple de siempre, sin la query extra de abajo. Solo el
+    // barbero que tenga capacidad_sillas > 1 configurada paga el costo de
+    // traer bloques activos — igual que ya hace GetAvailableSlotsUseCase
+    // para el buscador de un solo día. Ver isSlotDisponible en
+    // domain/booking-scheduling.ts: es la misma función que usa esa otra
+    // ruta, para que las dos no puedan volver a divergir.
+    const capacidadSillas = barber?.capacidad_sillas ?? 1;
+
+    const activeBlocksByFecha = new Map<string, MinuteRange[]>();
+    if (capacidadSillas > 1) {
+      const activeBlocks = await this.bookingRepository.findActiveBlocksByBarberAndMonth(
+        input.barberId,
+        firstDayStr,
+        lastDayStr,
+        input.excludeBookingId,
+      );
+      for (const b of activeBlocks) {
+        const range: MinuteRange = { start: this.toMinutes(b.hora_inicio), end: this.toMinutes(b.hora_fin) };
+        const list = activeBlocksByFecha.get(b.fecha) ?? [];
+        list.push(range);
+        activeBlocksByFecha.set(b.fecha, list);
+      }
+    }
+
+    // Mismo criterio que BookingController al armar los items para crear la
+    // reserva: cada servicio elegido, en el orden en que el cliente los
+    // seleccionó, con sus fases (aplicación/procesamiento) tal como están
+    // guardadas en el catálogo hoy. Si no hay servicios (calendario inicial
+    // sin combo elegido todavía), un item genérico de `duracion` (30 min
+    // default) sin fases — capacidadSillas<=1 ni siquiera llega a usar esto.
+    const candidateItems: BookingItemInput[] = services.length > 0
+      ? services.map((s, index) => ({
+          orden: index,
+          duracion_minutos: s.duracion_minutos,
+          tiempo_activo_inicial_minutos: s.tiempo_activo_inicial_minutos,
+          tiempo_procesamiento_minutos: s.tiempo_procesamiento_minutos,
+        }))
+      : [{ orden: 0, duracion_minutos: duracion }];
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -133,12 +177,16 @@ export class GetAllSlotsForDaysUseCase {
       if (!schedule) continue;
 
       const bookingsDelDia = bookings.filter((b) => b.fecha === dateStr);
+      const activeBlocksDelDia = activeBlocksByFecha.get(dateStr) ?? [];
       const slots = this.generateSlots(
         schedule.hora_inicio,
         schedule.hora_fin,
         duracion,
         buffer,
         bookingsDelDia,
+        capacidadSillas,
+        candidateItems,
+        activeBlocksDelDia,
         schedule.break_start,
         schedule.break_end,
       );
@@ -173,40 +221,60 @@ export class GetAllSlotsForDaysUseCase {
     duracion: number,
     buffer: number,
     bookings: Array<{ fecha: string; hora_inicio: string; hora_fin: string }>,
+    capacidadSillas: number,
+    candidateItems: BookingItemInput[],
+    activeBlocksDelDia: MinuteRange[],
     breakStart: string | null = null,
     breakEnd: string | null = null,
   ): TimeSlot[] {
-    const slots: TimeSlot[] = [];
-    const end     = this.toMinutes(horaFin);
+    const horaInicioMin = this.toMinutes(horaInicio);
+    const horaFinMin    = this.toMinutes(horaFin);
     const brkStart = breakStart ? this.toMinutes(breakStart) : null;
     const brkEnd   = breakEnd   ? this.toMinutes(breakEnd)   : null;
-    let   current = this.toMinutes(horaInicio);
 
-    while (current + duracion <= end) {
-      const slotStart = current;
-      const slotEnd   = current + duracion;
+    const bookingRanges: MinuteRange[] = bookings.map((b) => ({
+      start: this.toMinutes(b.hora_inicio),
+      end: this.toMinutes(b.hora_fin),
+    }));
+
+    // generateCandidateStartMinutes agrega, además de la grilla fija de
+    // siempre, un candidato justo al terminar cada bloque activo existente
+    // — sin esto, un servicio de la MISMA duración que una reserva ya
+    // agendada nunca prueba el momento exacto en que el barbero se libera
+    // para la otra silla (su propio paso fijo salta justo por encima de
+    // ese hueco). Ver comentario completo en booking-scheduling.ts.
+    const candidateStarts = generateCandidateStartMinutes(
+      horaInicioMin,
+      horaFinMin,
+      duracion,
+      buffer,
+      capacidadSillas,
+      activeBlocksDelDia,
+    );
+
+    const slots: TimeSlot[] = [];
+    for (const slotStart of candidateStarts) {
+      const slotEnd = slotStart + duracion;
 
       const overlapsBreak =
         brkStart !== null && brkEnd !== null &&
         slotStart < brkEnd && slotEnd > brkStart;
+      if (overlapsBreak) continue;
 
-      if (overlapsBreak) {
-        current = brkEnd!;
-        continue;
-      }
-
-      const disponible = !bookings.some((b) => {
-        const bStart = this.toMinutes(b.hora_inicio);
-        const bEnd   = this.toMinutes(b.hora_fin);
-        return slotStart < bEnd && slotEnd > bStart;
-      });
+      const disponible = isSlotDisponible(
+        slotStart,
+        slotEnd,
+        bookingRanges,
+        capacidadSillas,
+        candidateItems,
+        activeBlocksDelDia,
+      );
 
       slots.push({
         hora_inicio: this.fromMinutes(slotStart),
         hora_fin:    this.fromMinutes(slotEnd),
         disponible,
       });
-      current += duracion + buffer;
     }
 
     return slots;

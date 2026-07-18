@@ -39,6 +39,13 @@ export interface Booking {
    * inasistencia sin que infle ni vacíe los reportes de facturación.
    */
   no_show_at?: string | null;
+  /**
+   * UUID generado por el cliente una sola vez por intento de reserva —
+   * ver comentario en columna bookings.idempotency_key (mig. 020) y en
+   * CreateBookingUseCase. NULL en reservas creadas antes de esa migración
+   * o por callers que no la envían.
+   */
+  idempotency_key?: string | null;
   created_at: string;
 }
 
