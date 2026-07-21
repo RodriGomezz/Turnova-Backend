@@ -58,7 +58,8 @@ export interface Booking {
 export interface BookingItem {
   id: string;
   booking_id: string;
-  service_id: string;
+  /** null cuando es un ítem libre sin servicio de catálogo (producto, adicional ad-hoc). */
+  service_id: string | null;
   nombre: string;
   precio: number;
   duracion_minutos: number;

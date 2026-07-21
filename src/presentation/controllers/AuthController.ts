@@ -6,7 +6,6 @@ import {
 import { CreateBusinessUseCase } from "../../application/businesses/CreateBusinessUseCase";
 import { BusinessRepository } from "../../infrastructure/database/BusinessRepository";
 import { UserRepository } from "../../infrastructure/database/UserRepository";
-import { ServiceRepository } from "../../infrastructure/database/ServiceRepository";
 import { RegisterInput, LoginInput, ResendConfirmationInput } from "../schemas/auth.schema";
 import {
   AppError,
@@ -65,7 +64,6 @@ export class AuthController {
     this.createBusinessUseCase = new CreateBusinessUseCase(
       new BusinessRepository(),
       this.userRepository,
-      new ServiceRepository(),
     );
   }
 

@@ -2,15 +2,16 @@ import { IBookingRepository } from "../../domain/interfaces/IBookingRepository";
 import { IBookingItemRepository } from "../../domain/interfaces/IBookingItemRepository";
 import { IBookingTicketRepository } from "../../domain/interfaces/IBookingTicketRepository";
 import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
+import { Service } from "../../domain/entities/Service";
 import { Booking, BookingItem } from "../../domain/entities/Booking";
-import { NotFoundError, ConflictError } from "../../domain/errors";
+import { NotFoundError, ConflictError, ValidationError } from "../../domain/errors";
 import { computeActiveBlocks } from "../../domain/booking-scheduling";
 
 export interface AddBookingItemInput {
   booking_id: string;
-  /** Si se omite, se usa el servicio genérico ("Otros / Varios") del negocio. */
+  /** Si se omite, el ítem se registra sin servicio de catálogo (service_id null) — requiere nombre_personalizado. */
   service_id?: string;
-  /** Nombre a mostrar para este ítem. Si se omite, se usa el nombre del service. */
+  /** Nombre a mostrar para este ítem. Obligatorio si se omite service_id; si no, se usa el nombre del service. */
   nombre_personalizado?: string;
   /** Precio a cobrar. Siempre requerido — nunca se asume el precio de catálogo,
    *  porque quien agrega el ítem (el barbero) es quien decide cuánto cobrar
@@ -61,14 +62,22 @@ export class AddBookingItemUseCase {
       );
     }
 
-    const service = input.service_id
-      ? (await this.serviceRepository.findByIds([input.service_id]))[0]
-      : await this.serviceRepository.findGenerico(booking.business_id);
-
-    if (!service) throw new NotFoundError("Servicio");
-    if (service.business_id !== booking.business_id) {
-      throw new NotFoundError("Servicio");
+    let service: Service | null = null;
+    if (input.service_id) {
+      service = (await this.serviceRepository.findByIds([input.service_id]))[0] ?? null;
+      if (!service) throw new NotFoundError("Servicio");
+      if (service.business_id !== booking.business_id) {
+        throw new NotFoundError("Servicio");
+      }
+    } else if (!input.nombre_personalizado?.trim()) {
+      // Sin service_id el ítem no tiene de dónde sacar un nombre — a
+      // diferencia de antes, ya no hay un servicio genérico de fallback.
+      throw new ValidationError(
+        "Elegí un servicio del catálogo o ingresá un nombre para el ítem.",
+      );
     }
+
+    const nombreItem = input.nombre_personalizado?.trim() || service!.nombre;
 
     const duracion = input.duracion_minutos ?? 0;
 
@@ -77,8 +86,8 @@ export class AddBookingItemUseCase {
     if (duracion === 0) {
       const item = await this.bookingItemRepository.create({
         booking_id: booking.id,
-        service_id: service.id,
-        nombre: input.nombre_personalizado ?? service.nombre,
+        service_id: service?.id ?? null,
+        nombre: nombreItem,
         precio: input.precio,
         duracion_minutos: 0,
       });
@@ -93,8 +102,8 @@ export class AddBookingItemUseCase {
     if (siguienteTurnoYaEmpezo) {
       const item = await this.bookingItemRepository.create({
         booking_id: booking.id,
-        service_id: service.id,
-        nombre: input.nombre_personalizado ?? service.nombre,
+        service_id: service?.id ?? null,
+        nombre: nombreItem,
         precio: input.precio,
         duracion_minutos: duracion,
       });
@@ -109,7 +118,12 @@ export class AddBookingItemUseCase {
         hora_inicio: booking.hora_inicio,
         hora_fin: nuevaHoraFin,
         barber_id: booking.barber_id,
-        service_id: booking.service_id ?? service.id,
+        // bookings.service_id es la columna legacy 1:1 previa al modelo
+        // multi-servicio (ver comentario en Booking entity) — booking_items
+        // es la fuente de verdad real. Se mantiene por compatibilidad con
+        // consumidores viejos que aún la lean; si el ítem es libre (sin
+        // catálogo) no hay nada mejor que ofrecerle, así que no se toca.
+        service_id: (booking.service_id ?? service?.id) as string,
         estado: booking.estado === "pendiente" ? "pendiente" : "confirmada",
         modified_at: new Date().toISOString(),
       });
@@ -119,13 +133,13 @@ export class AddBookingItemUseCase {
 
       const item = await this.bookingItemRepository.create({
         booking_id: booking.id,
-        service_id: service.id,
-        nombre: input.nombre_personalizado ?? service.nombre,
+        service_id: service?.id ?? null,
+        nombre: nombreItem,
         precio: input.precio,
         duracion_minutos: duracion,
         orden,
-        tiempo_activo_inicial_minutos: service.tiempo_activo_inicial_minutos,
-        tiempo_procesamiento_minutos: service.tiempo_procesamiento_minutos,
+        tiempo_activo_inicial_minutos: service?.tiempo_activo_inicial_minutos ?? duracion,
+        tiempo_procesamiento_minutos: service?.tiempo_procesamiento_minutos ?? 0,
       });
 
       // El item nuevo empieza exactamente donde terminaba la reserva antes
@@ -135,8 +149,8 @@ export class AddBookingItemUseCase {
         {
           orden: 0,
           duracion_minutos: duracion,
-          tiempo_activo_inicial_minutos: service.tiempo_activo_inicial_minutos,
-          tiempo_procesamiento_minutos: service.tiempo_procesamiento_minutos,
+          tiempo_activo_inicial_minutos: service?.tiempo_activo_inicial_minutos ?? duracion,
+          tiempo_procesamiento_minutos: service?.tiempo_procesamiento_minutos ?? 0,
         },
       ]);
       if (blocks.length > 0) {
@@ -161,8 +175,8 @@ export class AddBookingItemUseCase {
       if (error instanceof ConflictError) {
         const item = await this.bookingItemRepository.create({
           booking_id: booking.id,
-          service_id: service.id,
-          nombre: input.nombre_personalizado ?? service.nombre,
+          service_id: service?.id ?? null,
+          nombre: nombreItem,
           precio: input.precio,
           duracion_minutos: duracion,
         });

@@ -33,7 +33,13 @@ export const addBookingItemSchema = z.object({
   nombre_personalizado: z.string().min(1).max(100).trim().optional(),
   precio: z.number().min(0),
   duracion_minutos: z.number().int().min(0).optional(),
-});
+}).refine(
+  (data) => !!data.service_id || !!data.nombre_personalizado,
+  {
+    message: 'Elegí un servicio del catálogo o ingresá un nombre para el ítem',
+    path: ['nombre_personalizado'],
+  },
+);
 
 export type AddBookingItemInput = z.infer<typeof addBookingItemSchema>;
 

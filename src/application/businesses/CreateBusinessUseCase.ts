@@ -1,6 +1,5 @@
 import { IBusinessRepository } from "../../domain/interfaces/IBusinessRepository";
 import { IUserRepository } from "../../domain/interfaces/IUserRepository";
-import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
 import { Business, BusinessPlan } from "../../domain/entities/Business";
 import { ConflictError } from "../../domain/errors";
 import { vercelService } from "../../infrastructure/services/vercel.service";
@@ -28,7 +27,6 @@ export class CreateBusinessUseCase {
   constructor(
     private readonly businessRepository: IBusinessRepository,
     private readonly userRepository: IUserRepository,
-    private readonly serviceRepository: IServiceRepository,
   ) {}
 
   async execute(input: CreateBusinessInput): Promise<Business> {
@@ -109,40 +107,11 @@ export class CreateBusinessUseCase {
       throw error;
     }
 
-    // Servicio genérico ("Otros / Varios") para booking_items sin catálogo
-    // (productos, adicionales ad-hoc cobrados en el momento). No bloquea el
-    // alta del negocio si falla: un negocio sin este servicio todavía puede
-    // operar con servicios de catálogo normales, y el backfill de la
-    // migración de multi-servicio crea el faltante para cualquier negocio
-    // que no lo tenga antes de que la feature salga a producción.
-    await this.serviceRepository
-      .create({
-        business_id: business.id,
-        nombre: "Otros / Varios",
-        descripcion: null,
-        incluye: null,
-        // duracion_minutos = 1, no 0: la tabla services tiene un CHECK
-        // constraint (services_duracion_check: duracion_minutos > 0).
-        // Es decorativo — ver nota en la migración 009 de backfill.
-        duracion_minutos: 1,
-        precio: 0,
-        precio_hasta: null,
-        // Servicio genérico: nunca tiene fases de procesamiento, es
-        // decorativo igual que duracion_minutos = 1.
-        tiempo_activo_inicial_minutos: 1,
-        tiempo_procesamiento_minutos: 0,
-        // Irrelevante: este servicio nunca se muestra en una lista
-        // ordenada (se filtra por es_generico en findAllByBusiness y en
-        // el frontend), así que no necesita el cálculo de getNextOrden.
-        orden: 0,
-        es_generico: true,
-      })
-      .catch((error) => {
-        logger.error("No se pudo crear el servicio genérico del negocio — se creará por backfill", {
-          businessId: business.id,
-          error: error instanceof Error ? error.message : error,
-        });
-      });
+    // Nota: ya no se crea acá un servicio "Otros / Varios" de placeholder.
+    // Desde la migración 022, booking_items.service_id es nullable — un
+    // ítem sin catálogo (producto, adicional ad-hoc) se registra con
+    // service_id NULL y su propio nombre/precio, sin necesitar ningún
+    // registro fantasma en services. Ver AddBookingItemUseCase.
 
     logger.info("Negocio creado", {
       businessId: business.id,

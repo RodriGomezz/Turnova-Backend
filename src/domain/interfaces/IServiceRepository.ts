@@ -4,8 +4,6 @@ export interface IServiceRepository {
   findById(id: string): Promise<Service | null>;
   /** Servicios cuyo id está en la lista dada, sin filtrar por business_id — el caller valida pertenencia. */
   findByIds(ids: string[]): Promise<Service[]>;
-  /** El servicio "Otros / Varios" del negocio, usado para booking_items sin catálogo. */
-  findGenerico(businessId: string): Promise<Service>;
   findByBusiness(businessId: string): Promise<Service[]>;
   findAllByBusiness(businessId: string): Promise<Service[]>; // activos + inactivos
   /** Siguiente valor de orden disponible (máximo actual + 1) para un negocio. */

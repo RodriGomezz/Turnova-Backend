@@ -163,9 +163,13 @@ export class StatsController {
         Object.entries(porBarbero).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
       // ── Servicio más solicitado ────────────────────────────────────────────
+      // Los ítems libres (service_id null: productos/adicionales ad-hoc sin
+      // catálogo) no entran acá — no son comparables entre sí como si fueran
+      // "un mismo servicio", y agruparlos falsearía cuál es el servicio top.
       const porServicio: Record<string, { nombre: string; count: number }> = {};
       for (const b of activosFiltrados) {
         for (const item of b.booking_items ?? []) {
+          if (!item.service_id) continue;
           if (!porServicio[item.service_id]) {
             porServicio[item.service_id] = { nombre: item.nombre, count: 0 };
           }

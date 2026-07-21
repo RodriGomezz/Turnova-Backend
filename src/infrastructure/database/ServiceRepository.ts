@@ -31,25 +31,6 @@ export class ServiceRepository implements IServiceRepository {
     return (data ?? []) as Service[];
   }
 
-  /** El servicio "Otros / Varios" del negocio — usado para booking_items sin catálogo. */
-  async findGenerico(businessId: string): Promise<Service> {
-    const { data, error } = await supabase
-      .from(this.table)
-      .select("*")
-      .eq("business_id", businessId)
-      .eq("es_generico", true)
-      .single();
-
-    if (error) {
-      throw new AppError(
-        `No se encontró el servicio genérico del negocio ${businessId}. ` +
-          `Verificar que la migración de backfill se haya ejecutado.`,
-        500,
-      );
-    }
-    return data as Service;
-  }
-
   async findByBusiness(businessId: string): Promise<Service[]> {
     const { data, error } = await supabase
       .from(this.table)

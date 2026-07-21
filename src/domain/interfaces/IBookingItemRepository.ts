@@ -2,7 +2,8 @@ import { BookingItem } from "../entities/Booking";
 
 export interface CreateBookingItemData {
   booking_id: string;
-  service_id: string;
+  /** Ausente/null para un ítem libre sin servicio de catálogo (ver AddBookingItemUseCase). */
+  service_id?: string | null;
   nombre: string;
   precio: number;
   duracion_minutos: number;

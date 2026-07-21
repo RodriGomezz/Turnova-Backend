@@ -120,7 +120,6 @@ const getAllSlotsForDaysUseCase = new GetAllSlotsForDaysUseCase(
 export const createBusinessUseCase = new CreateBusinessUseCase(
   businessRepository,
   userRepository,
-  serviceRepository,
 );
 
 export const createBarberUseCase = new CreateBarberUseCase(barberRepository);
