@@ -37,6 +37,13 @@ export interface Business {
   termino_servicio: string;
   termino_reserva: string;
   horario_texto: string | null;
+  /**
+   * false (default): horario_texto se ignora en la página pública — se
+   * genera automáticamente desde `schedules` (ver formatHorarioSemanal).
+   * true: se usa horario_texto tal cual lo escribió el dueño (caso "con
+   * cita previa" o negocios que no quieren publicar un horario fijo).
+   */
+  horario_personalizado: boolean;
   fotos_galeria: string[] | null;
   faq_items: BusinessFaqItem[] | null;
   custom_domain: string | null;

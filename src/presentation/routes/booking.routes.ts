@@ -8,6 +8,8 @@ import { supabase } from "../../infrastructure/database/supabase.client";
 import { getCached, setCache } from "../../infrastructure/cache/public.cache";
 import { getBusinessStatus } from "../../domain/business-status";
 import { Business } from "../../domain/entities/Business";
+import { Schedule } from "../../domain/entities/Schedule";
+import { formatHorarioSemanal } from "../../domain/schedule-formatting";
 import { canUseCustomDomain } from "../../domain/subscription-access";
 import { bookingController as controller } from '../../container';
 
@@ -82,6 +84,7 @@ const PUBLIC_SELECT = [
   "termino_servicio",
   "termino_reserva",
   "horario_texto",
+  "horario_personalizado",
   "fotos_galeria",
   "faq_items",
   "plan",
@@ -112,7 +115,7 @@ async function getPublicBusinessData(slug: string) {
   const businessStatus = getBusinessStatus(b);
   const isDisponible   = businessStatus === 'active' || businessStatus === 'trial';
 
-  const [barbersRes, servicesRes, barberServicesRes] = isDisponible
+  const [barbersRes, servicesRes, barberServicesRes, schedulesRes] = isDisponible
     ? await Promise.all([
         supabase
           .from('barbers')
@@ -134,8 +137,16 @@ async function getPublicBusinessData(slug: string) {
           .from('barber_services')
           .select('barber_id, service_id')
           .eq('business_id', b.id),
+        // Horario GENERAL del negocio (barber_id null) — fuente real de
+        // disponibilidad, usada para generar el horario que se muestra en
+        // la página pública (ver resolución de horario_texto más abajo).
+        supabase
+          .from('schedules')
+          .select('id, business_id, barber_id, dia_semana, hora_inicio, hora_fin, break_start, break_end, activo')
+          .eq('business_id', b.id)
+          .is('barber_id', null),
       ])
-    : [{ data: [] }, { data: [] }, { data: [] }];
+    : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
 
   // Construir Map<barberId, serviceId[]> para adjuntar a cada barbero
   const servicesByBarber = new Map<string, string[]>();
@@ -151,10 +162,20 @@ async function getPublicBusinessData(slug: string) {
     service_ids: servicesByBarber.get(barber.id) ?? [],
   }));
 
+  // horario_texto que se muestra en la página pública: por defecto se
+  // genera del horario real (schedules) para que nunca quede desincronizado
+  // de la disponibilidad real de reserva. Si el negocio activó
+  // horario_personalizado (caso "con cita previa" / sin horario fijo
+  // publicable), se respeta el texto que escribió a mano.
+  const horarioTexto =
+    b.horario_personalizado && b.horario_texto?.trim()
+      ? b.horario_texto
+      : formatHorarioSemanal((schedulesRes.data ?? []) as unknown as Schedule[]);
+
   return {
     notFound: false,
     data: {
-      business: { ...b, status: businessStatus },
+      business: { ...b, status: businessStatus, horario_texto: horarioTexto },
       barbers,
       services: isDisponible ? (servicesRes.data ?? []) : [],
     },

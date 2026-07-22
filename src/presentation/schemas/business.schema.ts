@@ -33,6 +33,8 @@ export const updateBusinessSchema = z.object({
   termino_servicio: z.string().min(1).max(30).optional(),
   termino_reserva: z.string().min(1).max(30).optional(),
   horario_texto: z.string().max(200).nullable().optional(),
+  /** true = usar horario_texto tal cual; false/undefined = generar el texto desde schedules. */
+  horario_personalizado: z.boolean().optional(),
   fotos_galeria: z.array(z.string().url()).max(8).nullable().optional(),
   faq_items: z.array(faqItemSchema).max(8).nullable().optional(),
   dias_anticipacion: z.number().int().min(1).max(365).optional(), 

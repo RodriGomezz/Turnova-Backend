@@ -73,6 +73,7 @@ export class CreateBusinessUseCase {
       recordatorio_horas_antes: 24,
       ciudad: null,
       pais: null,
+      horario_personalizado: false,
     });
 
     try {

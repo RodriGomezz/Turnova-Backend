@@ -7,7 +7,8 @@
     "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "node --require ts-node/register --test src/tests/*.ts"
+    "test": "node --require ts-node/register --test src/tests/*.ts",
+    "testError": "npx tsc --noEmit"
   },
   "keywords": [],
   "author": "",
