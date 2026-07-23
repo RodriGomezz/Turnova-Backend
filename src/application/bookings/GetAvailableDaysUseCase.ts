@@ -6,6 +6,7 @@ import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
 import { NotFoundError } from "../../domain/errors";
 import { BlockedDate } from "../../domain/entities/BlockedDate";
 import { Schedule } from "../../domain/entities/Schedule";
+import { padRangesWithBuffer, MinuteRange } from "../../domain/booking-scheduling";
 
 export interface GetAvailableDaysInput {
   slug: string;
@@ -40,6 +41,9 @@ export class GetAvailableDaysUseCase {
 
     const duracion = service?.duracion_minutos ?? 30;
     const buffer = business.buffer_minutos ?? 0;
+    // Ver comentario grande en generateCandidateStartMinutes: cada cuánto
+    // se ofrece un horario de inicio, desacoplado de `duracion`.
+    const intervalo = business.intervalo_turnos_minutos ?? 60;
     const { year: y, month: m } = input;
 
     const firstDay = `${y}-${m.toString().padStart(2, "0")}-01`;
@@ -83,7 +87,7 @@ export class GetAvailableDaysUseCase {
       );
       if (!schedule) continue;
 
-      if (this.hasAvailableSlot(dateStr, schedule, existingBookings, duracion, buffer)) {
+      if (this.hasAvailableSlot(dateStr, schedule, existingBookings, duracion, buffer, intervalo)) {
         availableDays.push(dateStr);
       }
     }
@@ -112,21 +116,29 @@ export class GetAvailableDaysUseCase {
     existingBookings: Array<{ fecha: string; hora_inicio: string; hora_fin: string }>,
     duracion: number,
     buffer: number,
+    intervalo: number,
   ): boolean {
     const inicio = this.parseMinutes(schedule.hora_inicio);
     const fin    = this.parseMinutes(schedule.hora_fin);
     const brkStart = schedule.break_start ? this.parseMinutes(schedule.break_start) : null;
     const brkEnd   = schedule.break_end   ? this.parseMinutes(schedule.break_end)   : null;
 
-    // Pre-parsear bookings del día para no repetir el parsing en cada slot
-    const bookingsDelDia = existingBookings
+    // Pre-parsear bookings del día para no repetir el parsing en cada slot.
+    // Padeadas ±buffer acá mismo — ver padRangesWithBuffer, misma lógica
+    // que las otras rutas de slots (antes el buffer solo se respetaba de
+    // forma indirecta a través del paso de la grilla).
+    const bookingsDelDiaRaw: MinuteRange[] = existingBookings
       .filter((b) => b.fecha === dateStr)
       .map((b) => ({
         start: this.parseMinutes(b.hora_inicio),
         end:   this.parseMinutes(b.hora_fin),
       }));
+    const bookingsDelDia = padRangesWithBuffer(bookingsDelDiaRaw, buffer);
 
-    for (let t = inicio; t + duracion <= fin; t += duracion + buffer) {
+    // Paso de grilla = intervalo configurado por el negocio, desacoplado
+    // de `duracion` — ver comentario grande en generateCandidateStartMinutes.
+    const paso = Math.max(intervalo, 1);
+    for (let t = inicio; t + duracion <= fin; t += paso) {
       const slotStart = t;
       const slotEnd   = t + duracion;
 

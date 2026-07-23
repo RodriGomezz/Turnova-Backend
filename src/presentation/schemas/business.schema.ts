@@ -11,6 +11,23 @@ export const updateBusinessSchema = z.object({
   whatsapp: z.string().max(20).nullable().optional(),
   direccion: z.string().max(200).nullable().optional(),
   buffer_minutos: z.number().int().min(0).max(60).optional(),
+  /**
+   * Cada cuántos minutos se ofrece un horario de inicio en el buscador de
+   * turnos, independiente de la duración del servicio. Mismos topes que
+   * la columna en BD (024_add_intervalo_turnos.sql). Se valida contra un
+   * set cerrado de valores típicos del rubro (mismo criterio que Fresha/
+   * Calendly) en vez de aceptar cualquier entero — evita que alguien
+   * cargue, por error de tipeo, un intervalo de 3 minutos que generaría
+   * una grilla de horarios enorme e inútil.
+   */
+  intervalo_turnos_minutos: z.union([
+    z.literal(15),
+    z.literal(30),
+    z.literal(45),
+    z.literal(60),
+    z.literal(90),
+    z.literal(120),
+  ]).optional(),
   auto_confirmar: z.boolean().optional(),
   logo_url: z.string().url().nullable().optional(),
   color_fondo: z

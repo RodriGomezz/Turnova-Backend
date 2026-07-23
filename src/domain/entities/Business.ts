@@ -20,6 +20,14 @@ export interface Business {
   direccion: string | null;
   timezone: string;
   buffer_minutos: number;
+  /**
+   * Cada cuántos minutos se ofrece un horario de inicio en el buscador de
+   * turnos — INDEPENDIENTE de cuánto dure cada servicio (ver comentario
+   * grande en generateCandidateStartMinutes, domain/booking-scheduling.ts).
+   * Mismo concepto que "Time slot interval" en Fresha / "Start time
+   * increments" en Calendly. Default 60.
+   */
+  intervalo_turnos_minutos: number;
   auto_confirmar: boolean;
   activo: boolean;
   plan: BusinessPlan;

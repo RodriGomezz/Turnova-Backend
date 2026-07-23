@@ -37,7 +37,7 @@ import { IBarberRepository } from "../../domain/interfaces/IBarberRepository";
 import { NotFoundError } from "../../domain/errors";
 import { BlockedDate } from "../../domain/entities/BlockedDate";
 import { Schedule } from "../../domain/entities/Schedule";
-import { BookingItemInput, isSlotDisponible, generateCandidateStartMinutes, MinuteRange } from "../../domain/booking-scheduling";
+import { BookingItemInput, isSlotDisponible, generateCandidateStartMinutes, padRangesWithBuffer, MinuteRange } from "../../domain/booking-scheduling";
 
 export interface TimeSlot {
   hora_inicio: string;
@@ -93,6 +93,9 @@ export class GetAllSlotsForDaysUseCase {
       ? services.reduce((sum, s) => sum + s.duracion_minutos, 0)
       : 30;
     const buffer   = business.buffer_minutos ?? 0;
+    // Ver comentario grande en generateCandidateStartMinutes: cada cuánto
+    // se ofrece un horario de inicio, desacoplado de `duracion`.
+    const intervalo = business.intervalo_turnos_minutos ?? 60;
     const { year: y, month: m } = input;
 
     const lastDayDate = new Date(y, m, 0);
@@ -183,6 +186,7 @@ export class GetAllSlotsForDaysUseCase {
         schedule.hora_fin,
         duracion,
         buffer,
+        intervalo,
         bookingsDelDia,
         capacidadSillas,
         candidateItems,
@@ -220,6 +224,7 @@ export class GetAllSlotsForDaysUseCase {
     horaFin: string,
     duracion: number,
     buffer: number,
+    intervalo: number,
     bookings: Array<{ fecha: string; hora_inicio: string; hora_fin: string }>,
     capacidadSillas: number,
     candidateItems: BookingItemInput[],
@@ -232,22 +237,26 @@ export class GetAllSlotsForDaysUseCase {
     const brkStart = breakStart ? this.toMinutes(breakStart) : null;
     const brkEnd   = breakEnd   ? this.toMinutes(breakEnd)   : null;
 
-    const bookingRanges: MinuteRange[] = bookings.map((b) => ({
+    const bookingRangesRaw: MinuteRange[] = bookings.map((b) => ({
       start: this.toMinutes(b.hora_inicio),
       end: this.toMinutes(b.hora_fin),
     }));
+    // Padeado ±buffer: única fuente de verdad del colchón entre turnos
+    // ahora que el paso de la grilla ya no lo aplica implícitamente (ver
+    // padRangesWithBuffer en booking-scheduling.ts).
+    const bookingRanges = padRangesWithBuffer(bookingRangesRaw, buffer);
 
     // generateCandidateStartMinutes agrega, además de la grilla fija de
-    // siempre, un candidato justo al terminar cada bloque activo existente
+    // paso `intervalo` (desacoplada de `duracion` — ver su comentario
+    // grande), un candidato justo al terminar cada bloque activo existente
     // — sin esto, un servicio de la MISMA duración que una reserva ya
     // agendada nunca prueba el momento exacto en que el barbero se libera
-    // para la otra silla (su propio paso fijo salta justo por encima de
-    // ese hueco). Ver comentario completo en booking-scheduling.ts.
+    // para la otra silla.
     const candidateStarts = generateCandidateStartMinutes(
       horaInicioMin,
       horaFinMin,
       duracion,
-      buffer,
+      intervalo,
       capacidadSillas,
       activeBlocksDelDia,
     );

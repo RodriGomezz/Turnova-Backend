@@ -57,6 +57,7 @@ export class CreateBusinessUseCase {
       direccion: null,
       timezone: "America/Montevideo",
       buffer_minutos: 0,
+      intervalo_turnos_minutos: 60,
       auto_confirmar: true,
       activo: true,
       frase_bienvenida: null,

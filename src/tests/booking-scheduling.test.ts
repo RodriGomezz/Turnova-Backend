@@ -6,6 +6,7 @@ import {
   haySillaLibre,
   isSlotDisponible,
   generateCandidateStartMinutes,
+  padRangesWithBuffer,
 } from "../domain/booking-scheduling";
 
 test("computeActiveBlocks: servicio sin fases = un solo bloque activo de toda la duración", () => {
@@ -206,7 +207,9 @@ test("generateCandidateStartMinutes: agrega el momento exacto en que termina un 
   const schedEnd = 18 * 60;
   const activeBlocksDelDia = [{ start: 9 * 60, end: 9 * 60 + 20 }]; // 09:00–09:20
 
-  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 60, 0, 2, activeBlocksDelDia);
+  // Intervalo de 60 min (equivalente al viejo "duracion + buffer" con
+  // duracion=60, buffer=0) para mantener el mismo resultado esperado.
+  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 60, 60, 2, activeBlocksDelDia);
 
   assert.ok(candidatos.includes(9 * 60 + 20), "debería incluir 09:20 como candidato");
   assert.ok(candidatos.includes(9 * 60), "no debe perder la grilla fija original (09:00)");
@@ -217,7 +220,7 @@ test("generateCandidateStartMinutes: con capacidad_sillas=1 no agrega candidatos
   const schedEnd = 18 * 60;
   const activeBlocksDelDia = [{ start: 9 * 60, end: 9 * 60 + 20 }];
 
-  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 60, 0, 1, activeBlocksDelDia);
+  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 60, 60, 1, activeBlocksDelDia);
 
   // Con 1 silla, el bloque activo es irrelevante para la grilla — solo la grilla fija.
   assert.deepEqual(candidatos, [540, 600, 660, 720, 780, 840, 900, 960, 1020]);
@@ -232,7 +235,7 @@ test("isSlotDisponible + generateCandidateStartMinutes juntos: el MISMO servicio
     { orden: 0, duracion_minutos: 60, tiempo_activo_inicial_minutos: 20, tiempo_procesamiento_minutos: 40 },
   ];
 
-  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 60, 0, 2, activeBlocksDelDia);
+  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 60, 60, 2, activeBlocksDelDia);
   const resultados = candidatos.map((start) => ({
     start,
     disponible: isSlotDisponible(start, start + 60, [primeraReserva], 2, items, activeBlocksDelDia),
@@ -243,4 +246,72 @@ test("isSlotDisponible + generateCandidateStartMinutes juntos: el MISMO servicio
 
   assert.equal(slot0920?.disponible, true, "09:20 debería quedar disponible para el mismo servicio");
   assert.equal(slot0900?.disponible, false, "09:00 sigue chocando con la primera reserva");
+});
+
+// ── Nuevo: intervalo desacoplado de la duración del servicio ────────────────
+// Caso que motivó todo este cambio: un servicio de 2 horas ya no debería
+// estar limitado a arrancar cada 2 horas.
+
+test("generateCandidateStartMinutes: un servicio de 2h con intervalo de 60 min ofrece varios horarios de inicio, no solo cada 2h", () => {
+  const schedStart = 9 * 60;  // 09:00
+  const schedEnd   = 19 * 60; // 19:00
+  const duracionServicio = 120; // 2 horas
+
+  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, duracionServicio, 60, 1, []);
+
+  // Antes (paso = duracion + buffer = 120, sin buffer configurado): solo
+  // 09:00, 11:00, 13:00, 15:00, 17:00 — 5 horarios en todo el día. Ahora
+  // (paso = intervalo = 60, independiente de la duración): un candidato
+  // cada hora mientras el bloque de 2h completo entre antes del cierre —
+  // 9 horarios en el mismo día, incluidos 10:00 y 11:00 que antes no
+  // existían como opción para este servicio.
+  assert.deepEqual(candidatos, [540, 600, 660, 720, 780, 840, 900, 960, 1020]);
+  assert.ok(candidatos.includes(10 * 60), "10:00 ahora es una opción válida, antes solo existían múltiplos de 2h desde la apertura");
+});
+
+test("generateCandidateStartMinutes: un servicio de 30 min con intervalo de 60 min NO ofrece un horario cada 30 min", () => {
+  const schedStart = 9 * 60;
+  const schedEnd   = 13 * 60;
+  const duracionServicio = 30;
+
+  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, duracionServicio, 60, 1, []);
+
+  // El intervalo es una configuración del NEGOCIO, no del servicio — un
+  // servicio corto respeta el mismo intervalo que uno largo. 780 (13:00)
+  // queda afuera porque 13:00 + 30min pasaría el cierre (13:00).
+  assert.deepEqual(candidatos, [540, 600, 660, 720]);
+});
+
+test("padRangesWithBuffer: extiende cada reserva ±buffer minutos", () => {
+  const padded = padRangesWithBuffer([{ start: 600, end: 660 }], 15);
+  assert.deepEqual(padded, [{ start: 585, end: 675 }]);
+});
+
+test("padRangesWithBuffer: buffer 0 devuelve los rangos sin tocar (misma referencia de contenido)", () => {
+  const original = [{ start: 600, end: 660 }];
+  const padded = padRangesWithBuffer(original, 0);
+  assert.deepEqual(padded, original);
+});
+
+test("buffer desacoplado del intervalo: un turno cargado fuera de la grilla igual respeta el buffer hacia ambos lados", () => {
+  // Reserva existente 10:00–11:45 (irregular, no nace de ninguna grilla).
+  // Buffer del negocio: 15 min. Intervalo: 30 min.
+  const schedStart = 9 * 60;
+  const schedEnd   = 18 * 60;
+  const reservaExistente = padRangesWithBuffer([{ start: 10 * 60, end: 11 * 60 + 45 }], 15);
+
+  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 30, 30, 1, []);
+  const disponibilidad = candidatos.map((start) => ({
+    start,
+    disponible: isSlotDisponible(start, start + 30, reservaExistente, 1, [{ orden: 0, duracion_minutos: 30 }], []),
+  }));
+
+  // 11:45 + 15 min de buffer = 12:00 — recién a partir de ahí debería
+  // volver a haber disponibilidad, aunque 11:45 mismo esté "libre" en el
+  // rango crudo de la reserva.
+  const slot1145 = disponibilidad.find((d) => d.start === 11 * 60 + 45);
+  const slot1200 = disponibilidad.find((d) => d.start === 12 * 60);
+
+  assert.equal(slot1145?.disponible, false, "11:45 debería seguir bloqueado por el buffer");
+  assert.equal(slot1200?.disponible, true, "12:00 ya respeta el buffer de 15 min");
 });

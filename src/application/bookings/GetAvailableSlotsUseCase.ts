@@ -6,6 +6,7 @@ import {
   BookingItemInput,
   isSlotDisponible,
   generateCandidateStartMinutes,
+  padRangesWithBuffer,
   MinuteRange,
 } from "../../domain/booking-scheduling";
 
@@ -15,6 +16,14 @@ export interface GetAvailableSlotsInput {
   fecha: string;
   duracionMinutos: number;
   bufferMinutos: number;
+  /**
+   * Cada cuántos minutos se ofrece un horario de inicio, independiente de
+   * `duracionMinutos` — ver Business.intervalo_turnos_minutos y el
+   * comentario grande en generateCandidateStartMinutes. Si se omite (
+   * llamadores viejos que todavía no mandan este campo), se usa 60 como
+   * default razonable — mismo valor que trae toda columna existente.
+   */
+  intervaloTurnosMinutos?: number;
   excludeBookingId?: string;
   /**
    * Items del servicio/combo que se está por reservar, con sus fases
@@ -75,10 +84,16 @@ export class GetAvailableSlotsUseCase {
     const brkStart = schedule.break_start ? this.timeToMinutes(this.normalizeTime(schedule.break_start)) : null;
     const brkEnd   = schedule.break_end   ? this.timeToMinutes(this.normalizeTime(schedule.break_end))   : null;
 
-    const bookingRanges: MinuteRange[] = bookings.map((b) => ({
+    // Sin padear: se usa para el candidateStarts (colisión con turnos
+    // activos) y para exponer el rango real más abajo si hiciera falta.
+    const bookingRangesRaw: MinuteRange[] = bookings.map((b) => ({
       start: this.timeToMinutes(b.hora_inicio),
       end: this.timeToMinutes(b.hora_fin),
     }));
+    // Padeado ±buffer: única fuente de verdad del colchón entre turnos
+    // ahora que la grilla ya no lo aplica implícitamente por su paso (ver
+    // padRangesWithBuffer). Es lo que se usa para decidir disponibilidad.
+    const bookingRanges = padRangesWithBuffer(bookingRangesRaw, input.bufferMinutos);
 
     // Solo se paga la query de bloques activos cuando realmente hace falta
     // (capacidadSillas > 1) — mismo criterio de siempre, sin cambios para
@@ -103,7 +118,7 @@ export class GetAvailableSlotsUseCase {
       horaInicio,
       horaFin,
       input.duracionMinutos,
-      input.bufferMinutos,
+      input.intervaloTurnosMinutos ?? 60,
       capacidadSillas,
       activeBlocksMinutos,
     );

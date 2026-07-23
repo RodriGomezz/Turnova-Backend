@@ -24,6 +24,8 @@ export interface CreateBookingInput {
   hora_fin: string;
   duracion_minutos: number;
   buffer_minutos: number;
+  /** Ver comentario en GetAvailableSlotsInput.intervaloTurnosMinutos. */
+  intervalo_turnos_minutos: number;
   auto_confirmar: boolean;
   /**
    * Ver comentario en bookings.idempotency_key (mig. 020). Opcional: si no
@@ -72,6 +74,7 @@ export class CreateBookingUseCase {
       fecha: input.fecha,
       duracionMinutos: input.duracion_minutos,
       bufferMinutos: input.buffer_minutos,
+      intervaloTurnosMinutos: input.intervalo_turnos_minutos,
       // Necesario para que el barbero con capacidad_sillas > 1 reciba el
       // mismo cálculo de huecos activos que ya vio el buscador de slots —
       // si no se pasa, GetAvailableSlotsUseCase asume un único bloque

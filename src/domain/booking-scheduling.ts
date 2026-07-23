@@ -102,6 +102,28 @@ export interface MinuteRange {
 }
 
 /**
+ * Extiende cada reserva existente `buffer` minutos hacia ambos lados antes
+ * de chequear solapamiento — el colchón mínimo que el negocio quiere entre
+ * dos turnos consecutivos (limpieza, traslado, etc.), sea cual sea el
+ * profesional que termina primero.
+ *
+ * Antes, el buffer solo se respetaba de forma indirecta: la grilla de
+ * candidatos avanzaba en pasos de `duracion + buffer`, así que dos turnos
+ * generados por esa misma grilla siempre quedaban separados por el buffer
+ * — pero SOLO si ambos habían nacido de esa grilla fija. Un turno cargado
+ * a mano en el panel con un horario que no coincidiera con la grilla no
+ * quedaba protegido en ninguna dirección. Con el intervalo de turnos ahora
+ * desacoplado de la duración (ver generateCandidateStartMinutes), esa
+ * protección implícita desaparece del todo si no se hace explícita acá —
+ * por eso este padding pasa a ser la única fuente de verdad del buffer,
+ * aplicada de forma pareja sin importar cómo se haya creado cada reserva.
+ */
+export function padRangesWithBuffer(ranges: MinuteRange[], buffer: number): MinuteRange[] {
+  if (buffer <= 0) return ranges;
+  return ranges.map((r) => ({ start: r.start - buffer, end: r.end + buffer }));
+}
+
+/**
  * true si hay al menos una silla física libre para un slot candidato
  * [slotStart, slotEnd), dado el listado de reservas del día expresadas
  * como su rango COMPLETO (hora_inicio–hora_fin en minutos, no solo tiempo
@@ -160,33 +182,46 @@ export function isSlotDisponible(
  * Genera los minutos-desde-medianoche donde puede EMPEZAR un turno
  * candidato, dentro de [scheduleStart, scheduleEnd).
  *
- * Caso capacidadSillas <= 1: grilla fija de siempre, cada `duracion +
- * buffer` minutos desde la apertura — sin cambios de comportamiento.
+ * Caso capacidadSillas <= 1: grilla fija cada `intervaloTurnos` minutos
+ * desde la apertura — a propósito INDEPENDIENTE de `duracion`. Antes el
+ * paso era `duracion + buffer`, lo que ataba la grilla de horarios
+ * ofrecidos a la duración del servicio pedido: un servicio de 2h solo
+ * podía arrancar cada 2h (9:00, 11:00, 13:00…) aunque el profesional
+ * estuviera libre a las 9:30, porque cualquier hueco más chico que la
+ * duración quedaba fuera de la grilla. `intervaloTurnos` es una
+ * configuración del negocio (ver Business.intervalo_turnos_minutos),
+ * mismo concepto que "Time slot interval" en Fresha o "Start time
+ * increments" en Calendly — ambos explícitamente desacoplados de la
+ * duración del evento/servicio. La disponibilidad real de cada candidato
+ * la sigue decidiendo `isSlotDisponible` más abajo, comparando el rango
+ * completo [t, t+duracion) contra las reservas existentes; esta función
+ * solo decide CADA CUÁNTO se prueba un candidato, no si es válido.
  *
  * Caso capacidadSillas > 1: la grilla fija por sí sola tiene un punto
  * ciego real. Si un servicio de 60 min (20 activos + 40 de espera) ocupa
- * 09:00–10:00, y otro cliente pide el MISMO servicio (mismos 60 min de
- * paso), la grilla fija solo prueba 09:00 (choca) y 10:00 (ya terminó el
- * primero, no aprovecha la silla libre en paralelo) — nunca prueba 09:20,
- * que es exactamente cuando el barbero queda libre para atender en la
- * otra silla. Un servicio de duración distinta puede "pisar" ese hueco
- * por la casualidad de su propio paso, pero no es algo que debería
- * depender de la suerte. Por eso acá se agrega un candidato extra justo
- * al terminar cada bloque activo existente ese día — el momento más útil
- * que la grilla fija se salta sistemáticamente cuando coincide la
- * duración del servicio.
+ * 09:00–10:00, y otro cliente pide el MISMO servicio (mismo intervalo de
+ * paso), la grilla fija solo prueba 09:00 (choca) y el siguiente múltiplo
+ * del intervalo — nunca prueba necesariamente 09:20, que es exactamente
+ * cuando el barbero queda libre para atender en la otra silla. Por eso acá
+ * se agrega un candidato extra justo al terminar cada bloque activo
+ * existente ese día — el momento más útil que la grilla fija puede
+ * saltearse según cómo caiga el intervalo configurado.
  */
 export function generateCandidateStartMinutes(
   scheduleStart: number,
   scheduleEnd: number,
   duracion: number,
-  buffer: number,
+  intervaloTurnos: number,
   capacidadSillas: number,
   existingActiveBlocks: MinuteRange[],
 ): number[] {
   const candidates = new Set<number>();
+  // Salvaguarda defensiva: un intervalo mal configurado en 0 o negativo
+  // generaría un loop infinito. No debería pasar (columna con CHECK > 0 en
+  // la base), pero más vale no confiar ciegamente en el dato de entrada acá.
+  const paso = Math.max(intervaloTurnos, 1);
 
-  for (let t = scheduleStart; t + duracion <= scheduleEnd; t += duracion + buffer) {
+  for (let t = scheduleStart; t + duracion <= scheduleEnd; t += paso) {
     candidates.add(t);
   }
 

@@ -201,6 +201,7 @@ export class BookingController {
         hora_fin,
         duracion_minutos: duracionTotal,
         buffer_minutos: business.buffer_minutos,
+        intervalo_turnos_minutos: business.intervalo_turnos_minutos,
         auto_confirmar: business.auto_confirmar ?? true,
         idempotency_key: input.idempotency_key,
       });
@@ -281,6 +282,7 @@ export class BookingController {
         fecha,
         duracionMinutos: duracionTotal,
         bufferMinutos: business.buffer_minutos,
+        intervaloTurnosMinutos: business.intervalo_turnos_minutos,
         // Necesario para que un barbero con capacidad_sillas > 1 muestre
         // como disponibles los huecos de procesamiento del combo pedido
         // (ver GetAvailableSlotsUseCase) — sin esto, el buscador asumiría
@@ -369,6 +371,7 @@ export class BookingController {
         hora_fin,
         duracion_minutos: duracionTotal,
         buffer_minutos: business.buffer_minutos,
+        intervalo_turnos_minutos: business.intervalo_turnos_minutos,
         auto_confirmar: business.auto_confirmar ?? true,
         idempotency_key: input.idempotency_key,
       });
