@@ -5,6 +5,7 @@ import { ReorderServicesUseCase } from "../../application/services/ReorderServic
 import { NotFoundError, ForbiddenError } from "../../domain/errors";
 import { CreateServiceInput, UpdateServiceInput, ReorderServicesInput } from "../schemas/service.schema";
 import { invalidateByBusinessId } from "../../infrastructure/cache/public.cache";
+import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
 
 export class ServiceController {
   constructor(
@@ -41,6 +42,7 @@ export class ServiceController {
         business_id: req.businessId!,
       });
       invalidateByBusinessId(req.businessId!);
+      invalidateSlotsCache(req.businessId!);
       res.status(201).json({ service });
     } catch (error) {
       next(error);
@@ -58,6 +60,13 @@ export class ServiceController {
 
       const service = await this.serviceRepository.update(id, input);
       invalidateByBusinessId(req.businessId!);
+      // Sin esto, cambiar duracion_minutos de un servicio no se reflejaba
+      // en la grilla de horarios ofrecida en la página pública hasta que
+      // el cache de slots expirara solo (TTL 2 min): un servicio editado
+      // de 30 a 120 min seguía mostrando/aceptando huecos de 30 min hasta
+      // entonces, aunque el dato del servicio en sí (nombre, duración
+      // mostrada en el selector) ya estuviera al día por invalidateByBusinessId.
+      invalidateSlotsCache(req.businessId!);
       res.json({ service });
     } catch (error) {
       next(error);
@@ -75,6 +84,7 @@ export class ServiceController {
 
       await this.serviceRepository.deactivate(id);
       invalidateByBusinessId(req.businessId!);
+      invalidateSlotsCache(req.businessId!);
       res.json({ message: "Servicio desactivado correctamente" });
     } catch (error) {
       next(error);
@@ -92,6 +102,7 @@ export class ServiceController {
 
       const service = await this.serviceRepository.reactivate(id);
       invalidateByBusinessId(req.businessId!);
+      invalidateSlotsCache(req.businessId!);
       res.json({ service });
     } catch (error) {
       next(error);
@@ -109,6 +120,7 @@ export class ServiceController {
 
       await this.serviceRepository.hardDelete(id);
       invalidateByBusinessId(req.businessId!);
+      invalidateSlotsCache(req.businessId!);
       res.json({ message: "Servicio eliminado correctamente" });
     } catch (error) {
       next(error);

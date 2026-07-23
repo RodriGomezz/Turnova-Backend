@@ -14,6 +14,8 @@ import {
 import { getPlanLimits }           from "../../domain/plan-limits";
 import { CreateBarberInput, UpdateBarberInput, ReorderBarbersInput } from "../schemas/barber.schema";
 import { logger }                  from "../../infrastructure/logger";
+import { invalidateByBusinessId }  from "../../infrastructure/cache/public.cache";
+import { invalidateSlotsCache }    from "../../infrastructure/cache/slots.cache";
 
 export class BarberController {
   private readonly barberRepository:        BarberRepository;
@@ -80,6 +82,8 @@ export class BarberController {
       });
 
       logger.info("Profesional creado", { businessId: req.businessId, barberId: barber.id });
+      invalidateByBusinessId(req.businessId!);
+      invalidateSlotsCache(req.businessId!);
       res.status(201).json({ barber });
     } catch (error) {
       next(error);
@@ -102,6 +106,15 @@ export class BarberController {
       if (existing.business_id !== req.businessId) throw new ForbiddenError();
 
       const barber = await this.barberRepository.update(id, req.businessId!, input);
+      // Este endpoint no invalidaba ningún cache. Dos campos que se editan
+      // acá son especialmente sensibles: `activo` (el barbero puede
+      // aparecer/desaparecer del picker público) y `capacidad_sillas`
+      // (cambia el cálculo mismo de generateCandidateStartMinutes para
+      // capacidadSillas > 1 — ver booking-scheduling.ts). Sin esto, un
+      // barbero recién desactivado seguía siendo reservable en la página
+      // pública hasta que el cache expirara solo (TTL 2 min).
+      invalidateByBusinessId(req.businessId!);
+      invalidateSlotsCache(req.businessId!);
       res.json({ barber });
     } catch (error) {
       next(error);
@@ -122,6 +135,8 @@ export class BarberController {
       if (hardDelete) {
         await this.barberRepository.hardDelete(id);
         logger.info("Profesional eliminado permanentemente", { businessId: req.businessId, barberId: id });
+        invalidateByBusinessId(req.businessId!);
+        invalidateSlotsCache(req.businessId!);
         res.json({ message: "Profesional eliminado correctamente" });
         return;
       }
@@ -133,6 +148,8 @@ export class BarberController {
 
       await this.barberRepository.deactivate(id);
       logger.info("Profesional desactivado", { businessId: req.businessId, barberId: id });
+      invalidateByBusinessId(req.businessId!);
+      invalidateSlotsCache(req.businessId!);
       res.json({ message: "Profesional desactivado correctamente" });
     } catch (error) {
       next(error);
@@ -187,6 +204,11 @@ export class BarberController {
         serviceId: service_id,
       });
 
+      // El picker público (GET /public/:slug) manda el service_ids de cada
+      // barbero, y la grilla de horarios se cachea por combinación
+      // barbero+servicio — las dos quedaban desactualizadas hasta el TTL.
+      invalidateByBusinessId(req.businessId!);
+      invalidateSlotsCache(req.businessId!);
       res.status(201).json({ message: "Servicio asignado correctamente" });
     } catch (error) {
       next(error);
@@ -214,6 +236,12 @@ export class BarberController {
         serviceId,
       });
 
+      // El más importante de los dos: sin esto, un cliente podía seguir
+      // agendando este barbero para un servicio que le acabás de sacar,
+      // porque la grilla de horarios cacheada para esa combinación
+      // barbero+servicio todavía no sabía que ya no correspondía.
+      invalidateByBusinessId(req.businessId!);
+      invalidateSlotsCache(req.businessId!);
       res.json({ message: "Servicio quitado correctamente" });
     } catch (error) {
       next(error);
