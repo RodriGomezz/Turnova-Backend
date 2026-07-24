@@ -10,8 +10,8 @@ export interface CreateServiceInput {
   duracion_minutos: number;
   precio: number;
   precio_hasta?: number | null;
-  tiempo_activo_inicial_minutos?: number;
-  tiempo_procesamiento_minutos?: number;
+  tiempo_activo_inicial_minutos?: number | null;
+  tiempo_procesamiento_minutos?: number | null;
 }
 
 export class CreateServiceUseCase {

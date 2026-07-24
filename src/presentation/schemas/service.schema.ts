@@ -11,10 +11,12 @@ const serviceBaseSchema = z.object({
    * Minutos de atención activa al inicio (ej. aplicar el color). Omitido =
    * todo el servicio es activo (comportamiento actual). Solo tiene efecto
    * real si el barbero asignado tiene capacidad_sillas > 1 — ver migración 016.
+   * Acepta `null` explícito además de omitido: el panel manda null para
+   * decir "sin fases" sin ambigüedad (ver ServiceController.update).
    */
-  tiempo_activo_inicial_minutos: z.number().int().min(0).max(480).optional(),
-  /** Minutos sin atención (ej. color fraguando). Omitido = 0, sin cambios. */
-  tiempo_procesamiento_minutos: z.number().int().min(0).max(480).optional(),
+  tiempo_activo_inicial_minutos: z.number().int().min(0).max(480).optional().nullable(),
+  /** Minutos sin atención (ej. color fraguando). Omitido o null = 0, sin cambios. */
+  tiempo_procesamiento_minutos: z.number().int().min(0).max(480).optional().nullable(),
 });
 
 export const createServiceSchema = serviceBaseSchema

@@ -315,3 +315,58 @@ test("buffer desacoplado del intervalo: un turno cargado fuera de la grilla igua
   assert.equal(slot1145?.disponible, false, "11:45 debería seguir bloqueado por el buffer");
   assert.equal(slot1200?.disponible, true, "12:00 ya respeta el buffer de 15 min");
 });
+
+// ── Gap-filling ("Reduce calendar gaps") ────────────────────────────────────
+// Caso concreto planteado: intervalo del negocio = 60 min, reserva de 30 min
+// a las 10:00. ¿El siguiente candidato es 11:00 aunque 10:30 esté libre?
+
+test("generateCandidateStartMinutes: SIN gap-filling (bookingEnds=[]), un turno corto deja un hueco inalcanzable", () => {
+  const schedStart = 9 * 60;
+  const schedEnd   = 18 * 60;
+  // Grilla de 60 min, sin pasar bookingEnds — replica el comportamiento
+  // previo a este fix (parámetro nuevo, default []).
+  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 30, 60, 1, []);
+
+  // Grilla pura: 9:00, 10:00, 11:00... — 10:30 no es candidato aunque una
+  // reserva de 30 min a las 10:00 dejaría ese hueco libre.
+  assert.ok(!candidatos.includes(10 * 60 + 30), "sin bookingEnds, 10:30 no debería existir como candidato");
+});
+
+test("generateCandidateStartMinutes: CON gap-filling, una reserva de 30 min a las 10:00 habilita 10:30 como candidato", () => {
+  const schedStart = 9 * 60;
+  const schedEnd   = 18 * 60;
+  // Reserva existente 10:00–10:30 → su fin (630 = 10:30) se pasa como
+  // bookingEnds, tal como hacen ahora GetAvailableSlotsUseCase y
+  // GetAllSlotsForDaysUseCase.
+  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 30, 60, 1, [], [10 * 60 + 30]);
+
+  assert.ok(candidatos.includes(10 * 60 + 30), "10:30 debería aparecer como candidato extra");
+  // La grilla fija de siempre sigue estando — esto es "Reduce", no
+  // "Eliminate": se suma, no se reemplaza.
+  assert.deepEqual(
+    candidatos.filter((c) => c % 60 === 0),
+    [540, 600, 660, 720, 780, 840, 900, 960, 1020],
+    "la grilla fija de 60 min tiene que seguir intacta",
+  );
+});
+
+test("isSlotDisponible + gap-filling juntos: reservar 10:00-10:30 (30 min) dentro de una grilla de 60 min habilita reservar justo después a las 10:30, no recién a las 11:00", () => {
+  const schedStart = 9 * 60;
+  const schedEnd   = 18 * 60;
+  const primeraReserva = { start: 10 * 60, end: 10 * 60 + 30 }; // 10:00–10:30, sin buffer
+  const bookingEnds = [primeraReserva.end];
+
+  const candidatos = generateCandidateStartMinutes(schedStart, schedEnd, 30, 60, 1, [], bookingEnds);
+  const resultados = candidatos.map((start) => ({
+    start,
+    disponible: isSlotDisponible(start, start + 30, [primeraReserva], 1, [{ orden: 0, duracion_minutos: 30 }], []),
+  }));
+
+  const slot1000 = resultados.find((r) => r.start === 10 * 60);       // ya reservado
+  const slot1030 = resultados.find((r) => r.start === 10 * 60 + 30);  // el hueco que se abre
+  const slot1100 = resultados.find((r) => r.start === 11 * 60);       // grilla fija de siempre
+
+  assert.equal(slot1000?.disponible, false, "10:00 ya está tomado");
+  assert.equal(slot1030?.disponible, true, "10:30 debería quedar disponible gracias al gap-filling");
+  assert.equal(slot1100?.disponible, true, "11:00 sigue disponible como antes (grilla fija)");
+});

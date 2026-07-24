@@ -6,7 +6,7 @@ import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
 import { NotFoundError } from "../../domain/errors";
 import { BlockedDate } from "../../domain/entities/BlockedDate";
 import { Schedule } from "../../domain/entities/Schedule";
-import { padRangesWithBuffer, MinuteRange } from "../../domain/booking-scheduling";
+import { padRangesWithBuffer, generateCandidateStartMinutes, isSlotDisponible, MinuteRange } from "../../domain/booking-scheduling";
 
 export interface GetAvailableDaysInput {
   slug: string;
@@ -110,6 +110,20 @@ export class GetAvailableDaysUseCase {
     });
   }
 
+  /**
+   * Reusa exactamente la misma lógica que GetAvailableSlotsUseCase y
+   * GetAllSlotsForDaysUseCase (generateCandidateStartMinutes +
+   * isSlotDisponible) en vez de reimplementar un tercer loop de grilla a
+   * mano. Antes este archivo tenía su propia copia con `for (t += duracion
+   * + buffer)` — el mismo tipo de duplicación que ya causó un bug real acá
+   * mismo en el pasado (ver el docblock de isSlotDisponible) y que además
+   * había quedado desactualizada dos veces: no tenía el intervalo
+   * configurable ni el gap-filling que sí tienen las otras dos rutas. Con
+   * esto, un día que SOLO tiene un hueco aprovechable por gap-filling (una
+   * reserva corta que deja lugar) ahora aparece correctamente como
+   * disponible acá también — antes el calendario podía marcarlo como sin
+   * cupo mientras el buscador de horarios del mismo día sí encontraba slot.
+   */
   private hasAvailableSlot(
     dateStr: string,
     schedule: Schedule,
@@ -123,10 +137,6 @@ export class GetAvailableDaysUseCase {
     const brkStart = schedule.break_start ? this.parseMinutes(schedule.break_start) : null;
     const brkEnd   = schedule.break_end   ? this.parseMinutes(schedule.break_end)   : null;
 
-    // Pre-parsear bookings del día para no repetir el parsing en cada slot.
-    // Padeadas ±buffer acá mismo — ver padRangesWithBuffer, misma lógica
-    // que las otras rutas de slots (antes el buffer solo se respetaba de
-    // forma indirecta a través del paso de la grilla).
     const bookingsDelDiaRaw: MinuteRange[] = existingBookings
       .filter((b) => b.fecha === dateStr)
       .map((b) => ({
@@ -135,25 +145,31 @@ export class GetAvailableDaysUseCase {
       }));
     const bookingsDelDia = padRangesWithBuffer(bookingsDelDiaRaw, buffer);
 
-    // Paso de grilla = intervalo configurado por el negocio, desacoplado
-    // de `duracion` — ver comentario grande en generateCandidateStartMinutes.
-    const paso = Math.max(intervalo, 1);
-    for (let t = inicio; t + duracion <= fin; t += paso) {
-      const slotStart = t;
-      const slotEnd   = t + duracion;
+    // Este endpoint no maneja capacidad_sillas > 1 (siempre trabajó a nivel
+    // "hay o no hay lugar", nunca necesitó bloques activos) — se pasa 1 y
+    // [] para capacidadSillas/existingActiveBlocks, que es exactamente el
+    // comportamiento que tenía antes de este refactor.
+    const candidateStarts = generateCandidateStartMinutes(
+      inicio,
+      fin,
+      duracion,
+      intervalo,
+      1,
+      [],
+      bookingsDelDiaRaw.map((b) => b.end),
+    );
+
+    for (const slotStart of candidateStarts) {
+      const slotEnd = slotStart + duracion;
 
       const overlapsBreak =
         brkStart !== null && brkEnd !== null &&
         slotStart < brkEnd && slotEnd > brkStart;
       if (overlapsBreak) continue;
 
-      // Usar overlap de intervalos — igual que generateSlots en GetAllSlotsForDaysUseCase.
-      // El enfoque anterior comparaba hora_inicio exacta y podía marcar como disponible
-      // un día donde todos los slots reales están ocupados (si las horas no coincidían exacto).
-      const ocupado = bookingsDelDia.some(
-        (b) => slotStart < b.end && slotEnd > b.start,
-      );
-      if (!ocupado) return true;
+      if (isSlotDisponible(slotStart, slotEnd, bookingsDelDia, 1, [{ orden: 0, duracion_minutos: duracion }], [])) {
+        return true;
+      }
     }
 
     return false;

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { IServiceRepository } from "../../domain/interfaces/IServiceRepository";
 import { CreateServiceUseCase } from "../../application/services/CreateServiceUseCase";
 import { ReorderServicesUseCase } from "../../application/services/ReorderServicesUseCase";
-import { NotFoundError, ForbiddenError } from "../../domain/errors";
+import { NotFoundError, ForbiddenError, ValidationError } from "../../domain/errors";
 import { CreateServiceInput, UpdateServiceInput, ReorderServicesInput } from "../schemas/service.schema";
 import { invalidateByBusinessId } from "../../infrastructure/cache/public.cache";
 import { invalidateSlotsCache } from "../../infrastructure/cache/slots.cache";
@@ -58,7 +58,36 @@ export class ServiceController {
       if (!existing) throw new NotFoundError("Servicio");
       if (existing.business_id !== req.businessId) throw new ForbiddenError();
 
-      const service = await this.serviceRepository.update(id, input);
+      // El patch a Supabase es PARCIAL: una clave ausente en el body deja la
+      // columna tal cual está en la base, no la resetea. Sin esto, editar
+      // solo `duracion_minutos` (ej. de 30 a 120 min) sin tocar el toggle de
+      // "tiempo de procesamiento" dejaba `tiempo_activo_inicial_minutos`
+      // con el valor viejo (ej. 30, de cuando la duración total también era
+      // 30) — ahora desincronizado de la nueva duración. computeActiveBlocks
+      // interpretaba eso como "solo 30 min de atención activa + 90 min de
+      // procesamiento libre", así que un barbero con capacidad_sillas > 1
+      // liberaba esos 90 min para otro cliente en la agenda pública, aunque
+      // el servicio en realidad no tiene fases — el turno completo debía
+      // bloquear las 2 horas. CreateServiceUseCase ya resuelve esto mismo al
+      // crear (ver su comentario); acá replicamos la misma resolución para
+      // que un PATCH parcial nunca pueda dejar las fases desalineadas con
+      // la duración vigente, sea cual sea el campo que el cliente mande.
+      const duracionEfectiva = input.duracion_minutos ?? existing.duracion_minutos;
+      const tiempoActivoInicial =
+        input.tiempo_activo_inicial_minutos ?? duracionEfectiva;
+      const tiempoProcesamiento = input.tiempo_procesamiento_minutos ?? 0;
+
+      if (tiempoActivoInicial + tiempoProcesamiento > duracionEfectiva) {
+        throw new ValidationError(
+          "tiempo_activo_inicial_minutos + tiempo_procesamiento_minutos no puede superar duracion_minutos",
+        );
+      }
+
+      const service = await this.serviceRepository.update(id, {
+        ...input,
+        tiempo_activo_inicial_minutos: tiempoActivoInicial,
+        tiempo_procesamiento_minutos: tiempoProcesamiento,
+      });
       invalidateByBusinessId(req.businessId!);
       // Sin esto, cambiar duracion_minutos de un servicio no se reflejaba
       // en la grilla de horarios ofrecida en la página pública hasta que

@@ -246,12 +246,14 @@ export class GetAllSlotsForDaysUseCase {
     // padRangesWithBuffer en booking-scheduling.ts).
     const bookingRanges = padRangesWithBuffer(bookingRangesRaw, buffer);
 
-    // generateCandidateStartMinutes agrega, además de la grilla fija de
-    // paso `intervalo` (desacoplada de `duracion` — ver su comentario
-    // grande), un candidato justo al terminar cada bloque activo existente
-    // — sin esto, un servicio de la MISMA duración que una reserva ya
-    // agendada nunca prueba el momento exacto en que el barbero se libera
-    // para la otra silla.
+    // generateCandidateStartMinutes agrega, sobre la grilla fija de paso
+    // `intervalo` (desacoplada de `duracion` — ver su comentario grande),
+    // dos tipos de candidato extra: el fin real de cada reserva del día
+    // (gap-filling — sin esto, un turno corto metido en un slot de la
+    // grilla deja un hueco que la grilla fija nunca vuelve a ofrecer) y el
+    // fin de cada bloque activo existente (para capacidadSillas > 1 — el
+    // barbero se libera para la otra silla antes de que termine la
+    // reserva completa).
     const candidateStarts = generateCandidateStartMinutes(
       horaInicioMin,
       horaFinMin,
@@ -259,6 +261,7 @@ export class GetAllSlotsForDaysUseCase {
       intervalo,
       capacidadSillas,
       activeBlocksDelDia,
+      bookingRangesRaw.map((b) => b.end),
     );
 
     const slots: TimeSlot[] = [];

@@ -121,6 +121,13 @@ export class GetAvailableSlotsUseCase {
       input.intervaloTurnosMinutos ?? 60,
       capacidadSillas,
       activeBlocksMinutos,
+      // Gap-filling ("Reduce calendar gaps"): el fin REAL de cada reserva
+      // existente (sin el padding de buffer) como candidato extra sobre la
+      // grilla fija — ver comentario grande en generateCandidateStartMinutes.
+      // isSlotDisponible más abajo igual valida contra bookingRanges
+      // (padeado), así que si el buffer no da, este candidato extra sale
+      // como no disponible, no rompe la garantía del colchón.
+      bookingRangesRaw.map((b) => b.end),
     );
 
     const slots: TimeSlot[] = [];

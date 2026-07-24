@@ -182,30 +182,38 @@ export function isSlotDisponible(
  * Genera los minutos-desde-medianoche donde puede EMPEZAR un turno
  * candidato, dentro de [scheduleStart, scheduleEnd).
  *
- * Caso capacidadSillas <= 1: grilla fija cada `intervaloTurnos` minutos
- * desde la apertura — a propósito INDEPENDIENTE de `duracion`. Antes el
- * paso era `duracion + buffer`, lo que ataba la grilla de horarios
- * ofrecidos a la duración del servicio pedido: un servicio de 2h solo
- * podía arrancar cada 2h (9:00, 11:00, 13:00…) aunque el profesional
- * estuviera libre a las 9:30, porque cualquier hueco más chico que la
- * duración quedaba fuera de la grilla. `intervaloTurnos` es una
- * configuración del negocio (ver Business.intervalo_turnos_minutos),
- * mismo concepto que "Time slot interval" en Fresha o "Start time
- * increments" en Calendly — ambos explícitamente desacoplados de la
- * duración del evento/servicio. La disponibilidad real de cada candidato
- * la sigue decidiendo `isSlotDisponible` más abajo, comparando el rango
- * completo [t, t+duracion) contra las reservas existentes; esta función
- * solo decide CADA CUÁNTO se prueba un candidato, no si es válido.
+ * Base — grilla fija cada `intervaloTurnos` minutos desde la apertura, a
+ * propósito INDEPENDIENTE de `duracion`. Antes el paso era `duracion +
+ * buffer`, lo que ataba la grilla de horarios ofrecidos a la duración del
+ * servicio pedido: un servicio de 2h solo podía arrancar cada 2h (9:00,
+ * 11:00, 13:00…) aunque el profesional estuviera libre a las 9:30, porque
+ * cualquier hueco más chico que la duración quedaba fuera de la grilla.
+ * `intervaloTurnos` es una configuración del negocio (ver
+ * Business.intervalo_turnos_minutos), mismo concepto que "Time slot
+ * interval" en Fresha o "Start time increments" en Calendly. La
+ * disponibilidad real de cada candidato la sigue decidiendo
+ * `isSlotDisponible` más abajo, comparando el rango completo
+ * [t, t+duracion) contra las reservas existentes; esta función solo decide
+ * CADA CUÁNTO se prueba un candidato, no si es válido.
  *
- * Caso capacidadSillas > 1: la grilla fija por sí sola tiene un punto
- * ciego real. Si un servicio de 60 min (20 activos + 40 de espera) ocupa
- * 09:00–10:00, y otro cliente pide el MISMO servicio (mismo intervalo de
- * paso), la grilla fija solo prueba 09:00 (choca) y el siguiente múltiplo
- * del intervalo — nunca prueba necesariamente 09:20, que es exactamente
- * cuando el barbero queda libre para atender en la otra silla. Por eso acá
- * se agrega un candidato extra justo al terminar cada bloque activo
- * existente ese día — el momento más útil que la grilla fija puede
- * saltearse según cómo caiga el intervalo configurado.
+ * Gap-filling — equivalente a "Reduce calendar gaps" de Fresha (no al modo
+ * "Eliminate", que solo muestra huecos exactos: acá se SUMAN candidatos
+ * sobre la grilla fija, nunca se la reemplaza, así que el cliente sigue
+ * viendo la variedad de horarios de siempre). Sin esto, un intervalo de
+ * negocio de 60 min y un turno YA reservado de 30 min a las 09:00 dejan
+ * 09:30–10:00 libre pero inalcanzable: la grilla fija solo prueba 09:00
+ * (choca) y 10:00, saltándose por completo un hueco real de media hora.
+ * Se agrega como candidato extra el momento exacto en que termina cada
+ * reserva existente ese día (`bookingEnds`) — aplica para cualquier
+ * `capacidadSillas`, no es un caso especial de multi-silla.
+ *
+ * Caso capacidadSillas > 1 — mismo problema, versión más sutil: si un
+ * servicio de 60 min (20 activos + 40 de espera) ocupa 09:00–10:00, y otro
+ * cliente pide el MISMO servicio, la grilla fija nunca prueba
+ * necesariamente 09:20, que es cuando el barbero queda libre para atender
+ * en la otra silla (el fin de la reserva completa, 10:00, ya está cubierto
+ * por `bookingEnds` — esto cubre el hueco intermedio que abre el tiempo de
+ * procesamiento). Por eso acá se suma además el fin de cada bloque activo.
  */
 export function generateCandidateStartMinutes(
   scheduleStart: number,
@@ -214,6 +222,7 @@ export function generateCandidateStartMinutes(
   intervaloTurnos: number,
   capacidadSillas: number,
   existingActiveBlocks: MinuteRange[],
+  bookingEnds: number[] = [],
 ): number[] {
   const candidates = new Set<number>();
   // Salvaguarda defensiva: un intervalo mal configurado en 0 o negativo
@@ -223,6 +232,12 @@ export function generateCandidateStartMinutes(
 
   for (let t = scheduleStart; t + duracion <= scheduleEnd; t += paso) {
     candidates.add(t);
+  }
+
+  for (const end of bookingEnds) {
+    if (end >= scheduleStart && end + duracion <= scheduleEnd) {
+      candidates.add(end);
+    }
   }
 
   if (capacidadSillas > 1) {
